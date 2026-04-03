@@ -1,0 +1,52 @@
+{
+  "name": "ai-newsroom",
+  "version": "0.1.0",
+  "description": "Real-time AI news aggregator MCP server — 22+ sources, pre-cached, instant access from Claude Code or any MCP client.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "collect": "tsx src/collectors/index.ts",
+    "collect:source": "tsx src/collectors/index.ts --source",
+    "digest": "tsx src/digest/generate.ts",
+    "dev:mcp": "tsx src/mcp/tools.ts",
+    "cleanup": "tsx src/utils/cleanup.ts",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "news",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "anthropic",
+    "aggregator",
+    "supabase"
+  ],
+  "author": "Joon Jung",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joonj14/ai-newsroom"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "rss-parser": "^3.13.0",
+    "cheerio": "^1.0.0",
+    "yaml": "^2.4.0",
+    "node-fetch": "^3.3.0",
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "tsx": "^4.16.0",
+    "@types/node": "^22.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

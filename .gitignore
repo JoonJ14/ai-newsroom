@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.env
+.env.local
+data/
+*.db
+*.sqlite
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

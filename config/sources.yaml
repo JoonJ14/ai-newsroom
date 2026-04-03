@@ -1,0 +1,267 @@
+# AI Newsroom - Source Configuration
+# Enable/disable individual sources or adjust settings.
+# Categories: company_blog, community, research, github, industry_news
+
+sources:
+  # ============================================
+  # TIER 1: Company Blogs & Official Channels
+  # ============================================
+  - id: anthropic_blog
+    name: Anthropic Blog
+    type: rss
+    url: https://www.anthropic.com/rss.xml
+    category: company_blog
+    enabled: true
+    tags: [anthropic, claude]
+
+  - id: anthropic_changelog
+    name: Anthropic Developer Changelog
+    type: rss
+    url: https://docs.anthropic.com/en/release-notes/overview
+    category: company_blog
+    enabled: true
+    tags: [anthropic, claude, api]
+
+  - id: claude_code_releases
+    name: Claude Code GitHub Releases
+    type: github_releases
+    url: https://api.github.com/repos/anthropics/claude-code/releases
+    category: github
+    enabled: true
+    tags: [anthropic, claude-code]
+
+  - id: openai_news
+    name: OpenAI News
+    type: rss
+    url: https://openai.com/news/rss.xml
+    category: company_blog
+    enabled: true
+    tags: [openai, gpt]
+
+  - id: openai_codex_releases
+    name: OpenAI Codex CLI Releases
+    type: github_releases
+    url: https://api.github.com/repos/openai/codex/releases
+    category: github
+    enabled: true
+    tags: [openai, codex]
+
+  - id: google_ai_blog
+    name: Google AI Blog
+    type: rss
+    url: https://blog.google/technology/ai/rss/
+    category: company_blog
+    enabled: true
+    tags: [google, gemini, deepmind]
+
+  - id: google_research
+    name: Google Research Blog
+    type: rss
+    url: https://blog.research.google/feeds/posts/default?alt=rss
+    category: research
+    enabled: true
+    tags: [google, research]
+
+  - id: nvidia_developer_blog
+    name: NVIDIA Developer Blog
+    type: rss
+    url: https://developer.nvidia.com/blog/feed/
+    category: company_blog
+    enabled: true
+    tags: [nvidia, cuda, gpu]
+
+  # ============================================
+  # TIER 2: Community Signal
+  # ============================================
+  - id: hackernews_top
+    name: Hacker News Top Stories
+    type: hackernews
+    url: https://hacker-news.firebaseio.com/v0/topstories.json
+    category: community
+    enabled: true
+    maxItems: 30
+    tags: [community, tech]
+
+  - id: show_hn
+    name: Show HN (24h)
+    type: hackernews_algolia
+    url: https://hn.algolia.com/api/v1/search?tags=show_hn&numericFilters=created_at_i>NOW_MINUS_24H
+    category: community
+    enabled: true
+    tags: [community, launches]
+
+  - id: reddit_claudeai
+    name: r/ClaudeAI
+    type: reddit
+    url: https://www.reddit.com/r/ClaudeAI/hot.json
+    category: community
+    enabled: true
+    maxItems: 20
+    tags: [reddit, claude, anthropic]
+
+  - id: reddit_localllama
+    name: r/LocalLLaMA
+    type: reddit
+    url: https://www.reddit.com/r/LocalLLaMA/hot.json
+    category: community
+    enabled: true
+    maxItems: 20
+    tags: [reddit, local-ai, models]
+
+  - id: reddit_machinelearning
+    name: r/MachineLearning
+    type: reddit
+    url: https://www.reddit.com/r/MachineLearning/hot.json
+    category: community
+    enabled: true
+    maxItems: 20
+    tags: [reddit, ml, research]
+
+  - id: reddit_artificial
+    name: r/artificial
+    type: reddit
+    url: https://www.reddit.com/r/artificial/hot.json
+    category: community
+    enabled: true
+    maxItems: 15
+    tags: [reddit, ai]
+
+  - id: hf_daily_papers
+    name: HuggingFace Daily Papers
+    type: json_api
+    url: https://huggingface.co/api/daily_papers
+    category: research
+    enabled: true
+    tags: [huggingface, papers, research]
+
+  - id: hf_trending_spaces
+    name: HuggingFace Trending Spaces
+    type: json_api
+    url: https://huggingface.co/api/spaces?sort=trendingScore&limit=20
+    category: community
+    enabled: true
+    tags: [huggingface, demos]
+
+  - id: github_trending
+    name: GitHub Trending Repositories
+    type: github_trending
+    url: https://github.com/trending
+    category: github
+    enabled: true
+    tags: [github, trending, open-source]
+
+  # ============================================
+  # TIER 3: Research & Papers
+  # ============================================
+  - id: arxiv_cs_ai
+    name: ArXiv cs.AI
+    type: rss
+    url: https://rss.arxiv.org/rss/cs.AI
+    category: research
+    enabled: true
+    maxItems: 15
+    tags: [arxiv, research, ai]
+
+  - id: arxiv_cs_lg
+    name: ArXiv cs.LG (Machine Learning)
+    type: rss
+    url: https://rss.arxiv.org/rss/cs.LG
+    category: research
+    enabled: true
+    maxItems: 15
+    tags: [arxiv, research, ml]
+
+  - id: arxiv_cs_cv
+    name: ArXiv cs.CV (Computer Vision)
+    type: rss
+    url: https://rss.arxiv.org/rss/cs.CV
+    category: research
+    enabled: true
+    maxItems: 15
+    tags: [arxiv, research, vision, gesture]
+
+  - id: devto_ai
+    name: Dev.to AI Tag
+    type: json_api
+    url: https://dev.to/api/articles?tag=ai&top=1
+    category: community
+    enabled: true
+    maxItems: 15
+    tags: [devto, tutorials, community]
+
+  # ============================================
+  # TIER 4: Industry News
+  # ============================================
+  - id: infoq_ai
+    name: InfoQ AI & ML
+    type: rss
+    url: https://feed.infoq.com/ai-ml-data-eng
+    category: industry_news
+    enabled: true
+    tags: [industry, enterprise]
+
+  - id: thenewstack_ai
+    name: The New Stack AI
+    type: rss
+    url: https://thenewstack.io/category/ai/feed/
+    category: industry_news
+    enabled: true
+    tags: [industry, devops, ai]
+
+  # ============================================
+  # GitHub Release Watching (specific repos)
+  # ============================================
+  - id: vllm_releases
+    name: vLLM Releases
+    type: github_releases
+    url: https://api.github.com/repos/vllm-project/vllm/releases
+    category: github
+    enabled: true
+    tags: [vllm, serving, inference]
+
+# ============================================
+# Source Groups (for quick enable/disable)
+# ============================================
+groups:
+  anthropic: [anthropic_blog, anthropic_changelog, claude_code_releases]
+  openai: [openai_news, openai_codex_releases]
+  google: [google_ai_blog, google_research]
+  nvidia: [nvidia_developer_blog]
+  community: [hackernews_top, show_hn, reddit_claudeai, reddit_localllama, reddit_machinelearning, reddit_artificial, hf_trending_spaces, devto_ai]
+  research: [hf_daily_papers, arxiv_cs_ai, arxiv_cs_lg, arxiv_cs_cv, google_research]
+  github: [github_trending, claude_code_releases, openai_codex_releases, vllm_releases]
+  industry: [infoq_ai, thenewstack_ai]
+
+# ============================================
+# Digest Configuration (personal layer)
+# ============================================
+digest:
+  # Priority topics for relevance filtering (ordered by importance)
+  priorities:
+    - label: "Anthropic & Claude Code updates"
+      keywords: [anthropic, claude, claude-code, sonnet, opus, haiku, mcp]
+      weight: 10
+    - label: "OpenAI & Codex updates"
+      keywords: [openai, codex, gpt, chatgpt, o1, o3]
+      weight: 9
+    - label: "AI agent orchestration & MCP"
+      keywords: [agent, mcp, orchestration, multi-agent, tool-use, function-calling, agentic]
+      weight: 8
+    - label: "Gesture recognition & computer vision"
+      keywords: [gesture, hand-tracking, pose-estimation, computer-vision, mediapipe, real-time-detection]
+      weight: 7
+    - label: "Google AI products & research"
+      keywords: [gemini, stitch, antigravity, firebase-studio, deepmind, google-ai]
+      weight: 6
+    - label: "NVIDIA & GPU ecosystem"
+      keywords: [nvidia, cuda, tensorrt, dgx, jetson, cosmos]
+      weight: 5
+
+  # Delivery schedule (cron syntax)
+  schedule: "0 7 * * *"  # 7:00 AM daily
+
+  # Maximum items in digest
+  maxItems: 15
+
+  # Delivery adapter: discord | telegram | slack | imessage
+  adapter: discord
