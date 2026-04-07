@@ -7,11 +7,12 @@ sources:
   # TIER 1: Company Blogs & Official Channels
   # ============================================
   - id: anthropic_blog
-    name: Anthropic Blog
-    type: rss
-    url: https://www.anthropic.com/rss.xml
+    name: Anthropic News
+    type: html_scrape
+    url: https://www.anthropic.com/news
     category: company_blog
     enabled: true
+    maxItems: 20
     tags: [anthropic, claude]
 
   - id: anthropic_changelog
