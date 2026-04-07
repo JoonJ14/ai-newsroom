@@ -23,6 +23,7 @@ import { collectHTMLScrape } from './scraper.js';
 import { computeRelevanceScore } from '../utils/scoring.js';
 import { deduplicateItems } from '../utils/dedup.js';
 import { filterRecentItems } from '../utils/date-filter.js';
+import { isAIRelevant } from '../utils/relevance-filter.js';
 import type { NewsItem, SourceConfig, SourcesConfig } from './types.js';
 
 const log = createLogger('orchestrator');
@@ -189,29 +190,58 @@ async function main() {
     log.info(`  ${r.source}: ${status}`);
   }
 
-  // Compute relevance scores
+  // AI relevance filtering (only for sources without skipRelevanceFilter)
   const sourceMap = new Map(allSources.map((s) => [s.id, s]));
+  const relevanceFiltered: NewsItem[] = [];
+  const filterStats = new Map<string, { before: number; after: number }>();
+
   for (const item of allItems) {
     const src = sourceMap.get(item.source);
+    if (!filterStats.has(item.source)) {
+      filterStats.set(item.source, { before: 0, after: 0 });
+    }
+    const stats = filterStats.get(item.source)!;
+    stats.before++;
+
+    if (src?.skipRelevanceFilter || isAIRelevant(item)) {
+      relevanceFiltered.push(item);
+      stats.after++;
+    }
+  }
+
+  // Log relevance filtering stats per source
+  let totalFiltered = 0;
+  for (const [sourceId, stats] of filterStats) {
+    const removed = stats.before - stats.after;
+    if (removed > 0) {
+      log.info(`  Relevance filter: ${sourceId} — removed ${removed}/${stats.before} non-AI items`);
+      totalFiltered += removed;
+    }
+  }
+  log.info(`Relevance filtering: ${allItems.length} -> ${relevanceFiltered.length} (${totalFiltered} non-AI items removed)`);
+
+  // Compute relevance scores
+  for (const item of relevanceFiltered) {
+    const src = sourceMap.get(item.source);
     if (src) {
-      const relevanceScore = computeRelevanceScore(item, src.type, src.category);
+      const relevanceScore = computeRelevanceScore(item, src.type, src.category, src.id);
       item.score = relevanceScore;
       item.metadata = { ...item.metadata, relevanceScore };
     }
   }
-  log.info(`Computed relevance scores for ${allItems.length} items`);
+  log.info(`Computed relevance scores for ${relevanceFiltered.length} items`);
 
   // Deduplicate
-  const beforeDedup = allItems.length;
-  const dedupedItems = deduplicateItems(allItems);
+  const beforeDedup = relevanceFiltered.length;
+  const dedupedItems = deduplicateItems(relevanceFiltered);
   log.info(`After dedup: ${dedupedItems.length} items (${beforeDedup - dedupedItems.length} duplicates removed)`);
 
-  // Show top 10 by relevance score
-  const top10 = [...dedupedItems]
+  // Show top 15 by relevance score
+  const top15 = [...dedupedItems]
     .sort((a, b) => (b.metadata?.relevanceScore as number ?? 0) - (a.metadata?.relevanceScore as number ?? 0))
-    .slice(0, 10);
-  log.info('Top 10 items by relevance:');
-  for (const item of top10) {
+    .slice(0, 15);
+  log.info('Top 15 items by relevance:');
+  for (const item of top15) {
     log.info(`  [${item.metadata?.relevanceScore}] ${item.source}: ${item.title}`);
   }
 

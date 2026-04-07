@@ -58,19 +58,35 @@ function communityScore(item: NewsItem, collectorType: CollectorType): number {
   return Math.min(100, Math.round((item.score / ceiling) * 100));
 }
 
+/** Tier 1 release repos that get a score floor of 90 */
+const TIER1_RELEASE_IDS = new Set(['claude_code_releases', 'openai_codex_releases']);
+
 /**
  * Compute overall relevance score for a news item.
  * Returns integer 0-100.
+ *
+ * Score floors:
+ * - company_blog sources: minimum 95 (official announcements always top)
+ * - Tier 1 github_releases (claude_code, openai_codex): minimum 90
  */
 export function computeRelevanceScore(
   item: NewsItem,
   collectorType: CollectorType,
   category: SourceCategory,
+  sourceId?: string,
 ): number {
   const recency = recencyScore(item);
   const community = communityScore(item, collectorType);
   const tier = TIER_WEIGHTS[category];
 
-  const score = Math.round(recency * 0.4 + community * 0.4 + tier * 0.2);
+  let score = Math.round(recency * 0.4 + community * 0.4 + tier * 0.2);
+
+  // Tier 1 score floors
+  if (category === 'company_blog') {
+    score = Math.max(score, 95);
+  } else if (sourceId && TIER1_RELEASE_IDS.has(sourceId)) {
+    score = Math.max(score, 90);
+  }
+
   return Math.max(0, Math.min(100, score));
 }

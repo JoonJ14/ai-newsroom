@@ -37,6 +37,7 @@ export interface SourceConfig {
   maxItems?: number;
   tags: string[];
   refreshIntervalHours?: number;
+  skipRelevanceFilter?: boolean;
 }
 
 /** Supported collector types */

@@ -14,6 +14,7 @@ sources:
     enabled: true
     maxItems: 20
     tags: [anthropic, claude]
+    skipRelevanceFilter: true
 
   - id: anthropic_changelog
     name: Anthropic Developer Changelog
@@ -22,6 +23,7 @@ sources:
     category: company_blog
     enabled: true
     tags: [anthropic, claude, api]
+    skipRelevanceFilter: true
 
   - id: claude_code_releases
     name: Claude Code GitHub Releases
@@ -30,6 +32,7 @@ sources:
     category: github
     enabled: true
     tags: [anthropic, claude-code]
+    skipRelevanceFilter: true
 
   - id: openai_news
     name: OpenAI News
@@ -38,6 +41,7 @@ sources:
     category: company_blog
     enabled: true
     tags: [openai, gpt]
+    skipRelevanceFilter: true
 
   - id: openai_codex_releases
     name: OpenAI Codex CLI Releases
@@ -46,6 +50,7 @@ sources:
     category: github
     enabled: true
     tags: [openai, codex]
+    skipRelevanceFilter: true
 
   - id: google_ai_blog
     name: Google AI Blog
@@ -54,6 +59,7 @@ sources:
     category: company_blog
     enabled: true
     tags: [google, gemini, deepmind]
+    skipRelevanceFilter: true
 
   - id: google_research
     name: Google Research Blog
@@ -62,6 +68,7 @@ sources:
     category: research
     enabled: true
     tags: [google, research]
+    skipRelevanceFilter: true
 
   - id: nvidia_developer_blog
     name: NVIDIA Developer Blog
@@ -70,18 +77,20 @@ sources:
     category: company_blog
     enabled: true
     tags: [nvidia, cuda, gpu]
+    skipRelevanceFilter: true
 
   # ============================================
   # TIER 2: Community Signal
   # ============================================
   - id: hackernews_top
-    name: Hacker News Top Stories
-    type: hackernews
-    url: https://hacker-news.firebaseio.com/v0/topstories.json
+    name: Hacker News AI Stories
+    type: hackernews_algolia
+    url: https://hn.algolia.com/api/v1/search?query=AI+OR+LLM+OR+GPT+OR+Claude+OR+Anthropic+OR+OpenAI+OR+%22machine+learning%22+OR+%22deep+learning%22+OR+agent+OR+MCP&tags=story&numericFilters=points>20,created_at_i>NOW_MINUS_24H
     category: community
     enabled: true
-    maxItems: 30
-    tags: [community, tech]
+    maxItems: 25
+    tags: [community, tech, ai]
+    skipRelevanceFilter: false
 
   - id: show_hn
     name: Show HN (24h)
@@ -90,6 +99,7 @@ sources:
     category: community
     enabled: true
     tags: [community, launches]
+    skipRelevanceFilter: false
 
   - id: reddit_claudeai
     name: r/ClaudeAI
@@ -99,6 +109,7 @@ sources:
     enabled: true
     maxItems: 20
     tags: [reddit, claude, anthropic]
+    skipRelevanceFilter: true
 
   - id: reddit_localllama
     name: r/LocalLLaMA
@@ -108,6 +119,7 @@ sources:
     enabled: true
     maxItems: 20
     tags: [reddit, local-ai, models]
+    skipRelevanceFilter: true
 
   - id: reddit_machinelearning
     name: r/MachineLearning
@@ -117,6 +129,7 @@ sources:
     enabled: true
     maxItems: 20
     tags: [reddit, ml, research]
+    skipRelevanceFilter: true
 
   - id: reddit_artificial
     name: r/artificial
@@ -126,6 +139,7 @@ sources:
     enabled: true
     maxItems: 15
     tags: [reddit, ai]
+    skipRelevanceFilter: false
 
   - id: hf_daily_papers
     name: HuggingFace Daily Papers
@@ -134,6 +148,7 @@ sources:
     category: research
     enabled: true
     tags: [huggingface, papers, research]
+    skipRelevanceFilter: true
 
   - id: hf_trending_spaces
     name: HuggingFace Trending Spaces
@@ -142,6 +157,7 @@ sources:
     category: community
     enabled: true
     tags: [huggingface, demos]
+    skipRelevanceFilter: true
 
   - id: github_trending
     name: GitHub Trending Repositories
@@ -150,6 +166,7 @@ sources:
     category: github
     enabled: true
     tags: [github, trending, open-source]
+    skipRelevanceFilter: false
 
   # ============================================
   # TIER 3: Research & Papers
@@ -162,6 +179,7 @@ sources:
     enabled: true
     maxItems: 15
     tags: [arxiv, research, ai]
+    skipRelevanceFilter: true
 
   - id: arxiv_cs_lg
     name: ArXiv cs.LG (Machine Learning)
@@ -171,6 +189,7 @@ sources:
     enabled: true
     maxItems: 15
     tags: [arxiv, research, ml]
+    skipRelevanceFilter: true
 
   - id: arxiv_cs_cv
     name: ArXiv cs.CV (Computer Vision)
@@ -180,6 +199,7 @@ sources:
     enabled: true
     maxItems: 15
     tags: [arxiv, research, vision, gesture]
+    skipRelevanceFilter: true
 
   - id: devto_ai
     name: Dev.to AI Tag
@@ -189,6 +209,7 @@ sources:
     enabled: true
     maxItems: 15
     tags: [devto, tutorials, community]
+    skipRelevanceFilter: false
 
   # ============================================
   # TIER 4: Industry News
@@ -200,6 +221,7 @@ sources:
     category: industry_news
     enabled: true
     tags: [industry, enterprise]
+    skipRelevanceFilter: true
 
   - id: thenewstack_ai
     name: The New Stack AI
@@ -208,6 +230,7 @@ sources:
     category: industry_news
     enabled: true
     tags: [industry, devops, ai]
+    skipRelevanceFilter: true
 
   # ============================================
   # GitHub Release Watching (specific repos)
@@ -219,6 +242,7 @@ sources:
     category: github
     enabled: true
     tags: [vllm, serving, inference]
+    skipRelevanceFilter: true
 
 # ============================================
 # Source Groups (for quick enable/disable)
