@@ -12,6 +12,7 @@ const parser = new Parser({
   timeout: 15_000,
   headers: {
     'User-Agent': 'ai-newsroom/0.1 (+https://github.com/joonj14/ai-newsroom)',
+    Accept: 'application/rss+xml, application/xml, text/xml, */*',
   },
 });
 

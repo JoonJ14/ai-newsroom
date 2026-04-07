@@ -18,10 +18,11 @@ sources:
 
   - id: anthropic_changelog
     name: Anthropic Developer Changelog
-    type: rss
+    type: html_scrape
     url: https://docs.anthropic.com/en/release-notes/overview
     category: company_blog
     enabled: true
+    maxItems: 15
     tags: [anthropic, claude, api]
     skipRelevanceFilter: true
 

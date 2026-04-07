@@ -16,6 +16,7 @@ const log = createLogger('scraper');
  */
 const SCRAPERS: Record<string, (html: string, source: SourceConfig) => NewsItem[]> = {
   anthropic_blog: scrapeAnthropicNews,
+  anthropic_changelog: scrapeAnthropicChangelog,
 };
 
 export async function collectHTMLScrape(source: SourceConfig): Promise<NewsItem[]> {
@@ -99,6 +100,59 @@ function scrapeAnthropicNews(html: string, source: SourceConfig): NewsItem[] {
       metadata: { category },
     });
   });
+
+  return items;
+}
+
+/**
+ * Scrape Anthropic's developer changelog page.
+ * Each entry is a date heading followed by a ul with changelog items.
+ */
+function scrapeAnthropicChangelog(html: string, source: SourceConfig): NewsItem[] {
+  const now = new Date().toISOString();
+  const items: NewsItem[] = [];
+
+  // Pattern: <div>Month DD, YYYY</div> followed by <ul>...</ul>
+  const entryPattern = /<div>(\w+ \d{1,2}, \d{4})<\/div>.*?<ul[^>]*>(.*?)<\/ul>/gs;
+  let match;
+
+  while ((match = entryPattern.exec(html)) !== null) {
+    const dateStr = match[1];
+    const content = match[2];
+
+    const publishedAt = safeISODate(dateStr);
+
+    // Strip HTML tags to get plain text summary
+    const text = content
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&#x27;/g, "'")
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!text || text.length < 10) continue;
+
+    // Use the first sentence as the title
+    const titleEnd = text.indexOf('. ');
+    const title = titleEnd > 0 && titleEnd < 120
+      ? text.slice(0, titleEnd + 1)
+      : text.slice(0, 120) + (text.length > 120 ? '...' : '');
+
+    items.push({
+      title: `[${dateStr}] ${title}`,
+      url: `${source.url}#${dateStr.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      source: source.id,
+      sourceCategory: source.category,
+      score: 0,
+      summary: text.slice(0, 500),
+      tags: source.tags,
+      fetchedAt: now,
+      publishedAt,
+    });
+  }
 
   return items;
 }
