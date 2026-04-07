@@ -110,9 +110,12 @@ export async function collectHackerNewsAlgolia(source: SourceConfig): Promise<Ne
   log.info(`Fetching HN Algolia: ${source.name}`);
 
   try {
-    // Replace NOW_MINUS_24H placeholder with actual timestamp
+    // Replace NOW_MINUS_*H placeholders with actual timestamps
     const oneDayAgo = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
-    const url = source.url.replace('NOW_MINUS_24H', String(oneDayAgo));
+    const twoDaysAgo = Math.floor((Date.now() - 48 * 60 * 60 * 1000) / 1000);
+    const url = source.url
+      .replace('NOW_MINUS_24H', String(oneDayAgo))
+      .replace('NOW_MINUS_48H', String(twoDaysAgo));
 
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -61,16 +61,21 @@ function scrapeAnthropicNews(html: string, source: SourceConfig): NewsItem[] {
   const $ = cheerio.load(html);
   const now = new Date().toISOString();
   const items: NewsItem[] = [];
+  // Page lists newest first — cap at 5 items as a heuristic for recency
+  // since date parsing from CSS class selectors is fragile
+  const MAX_ITEMS = 5;
 
-  // Featured grid items (top section)
   $('a[href^="/news/"]').each((_i, el) => {
+    if (items.length >= MAX_ITEMS) return false;
+
     const $el = $(el);
     const href = $el.attr('href');
     if (!href) return;
 
     const title =
       $el.find('h4').first().text().trim() ||
-      $el.find('.PublicationList-module-scss-module__KxYrHG__title').text().trim();
+      $el.find('.PublicationList-module-scss-module__KxYrHG__title').text().trim() ||
+      $el.find('span').filter(function() { return $(this).text().trim().length > 10; }).first().text().trim();
     if (!title) return;
 
     const url = `https://www.anthropic.com${href}`;
@@ -79,13 +84,8 @@ function scrapeAnthropicNews(html: string, source: SourceConfig): NewsItem[] {
     if (items.some((item) => item.url === url)) return;
 
     const summary = $el.find('p').first().text().trim() || undefined;
-    const dateText =
-      $el.find('time').first().text().trim();
+    const dateText = $el.find('time').first().text().trim();
     const publishedAt = dateText ? safeISODate(dateText) : undefined;
-    const category =
-      $el.find('.caption.bold').first().text().trim() ||
-      $el.find('.PublicationList-module-scss-module__KxYrHG__subject').text().trim() ||
-      undefined;
 
     items.push({
       title,
@@ -97,7 +97,6 @@ function scrapeAnthropicNews(html: string, source: SourceConfig): NewsItem[] {
       tags: source.tags,
       fetchedAt: now,
       publishedAt,
-      metadata: { category },
     });
   });
 

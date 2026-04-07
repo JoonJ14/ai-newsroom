@@ -86,7 +86,7 @@ sources:
   - id: hackernews_top
     name: Hacker News AI Stories
     type: hackernews_algolia
-    url: https://hn.algolia.com/api/v1/search?query=AI+OR+LLM+OR+GPT+OR+Claude+OR+Anthropic+OR+OpenAI+OR+%22machine+learning%22+OR+%22deep+learning%22+OR+agent+OR+MCP&tags=story&numericFilters=points>20,created_at_i>NOW_MINUS_24H
+    url: https://hn.algolia.com/api/v1/search?query=AI&tags=story&numericFilters=points>5,created_at_i>NOW_MINUS_48H
     category: community
     enabled: true
     maxItems: 25
