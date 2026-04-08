@@ -12,7 +12,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'get_top_picks',
     description:
-      'Get the latest AI news organized by category: official announcements, community highlights, research papers, and industry news. Uses a smart slots-based layout that guarantees diversity across sources.',
+      'Get the latest AI news organized into 5 sections. IMPORTANT: Always display ALL sections as distinct categories in your response. The sections are: (1) Today\'s Highlights — items published in the last 24 hours, (2) Official Announcements — company blog posts and major releases, (3) Community Highlights — Reddit, HackerNews, HuggingFace, (4) Research & Papers — ArXiv and academic work, (5) Industry News — trade publications and analysis. Each section has its own emoji and label. Present them separately — do not merge Today\'s Highlights into other sections.',
     inputSchema: {
       type: 'object',
       properties: {
