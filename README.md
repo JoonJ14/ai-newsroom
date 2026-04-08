@@ -124,7 +124,17 @@ Instead of asking Claude for news, you can have a formatted daily briefing autom
 
 ### Discord Setup
 
-**Step 1: Create a Discord webhook (where the digest will be sent)**
+#### Path 1: Join our Discord (zero setup)
+
+Just join and the daily digest lands in your feed automatically. No accounts, no webhooks, no config files.
+
+**[Join the AI Newsroom Discord](https://discord.gg/xUCRZq9c)** — daily AI news at noon Eastern.
+
+#### Path 2: Run your own Discord digest
+
+Want the digest in your own server? Follow these steps.
+
+**Step 1: Create a Discord webhook**
 
 If you already have a Discord server you want to use, skip to step 5.
 
@@ -142,9 +152,7 @@ If you already have a Discord server you want to use, skip to step 5.
 
 **Step 2: Choose how to run the digest**
 
-You have two options:
-
-**Option A: GitHub Actions (recommended — runs automatically even if your computer is off)**
+**Method A: GitHub Actions (recommended — runs automatically even if your computer is off)**
 
 1. Go to [github.com/JoonJ14/ai-newsroom](https://github.com/JoonJ14/ai-newsroom) and click **Fork** (top-right button) to create your own copy
 2. In your forked repo, click **Settings** (tab at the top)
@@ -160,7 +168,7 @@ You have two options:
 5. The digest will now run **automatically every day at noon Eastern time**
 6. To send one right now: go to the **Actions** tab, click **Daily AI News Digest**, click **Run workflow**
 
-**Option B: Run on your own computer**
+**Method B: Run on your own computer**
 
 1. Clone the repo and install:
    ```bash
