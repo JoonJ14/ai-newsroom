@@ -7,10 +7,7 @@
  */
 
 import 'dotenv/config';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '../utils/logger.js';
 import { buildSlottedDisplay } from '../utils/slots.js';
 import type { NewsItem, SourceCategory } from '../collectors/types.js';
@@ -22,21 +19,25 @@ import { sendSlackDigest } from './adapters/slack.js';
 import { sendIMessageDigest } from './adapters/imessage.js';
 
 const log = createLogger('digest');
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const LAST_DIGEST_PATH = resolve(__dirname, '../../.last-digest');
 
-function getLastDigestTime(): string {
-  if (existsSync(LAST_DIGEST_PATH)) {
-    const ts = readFileSync(LAST_DIGEST_PATH, 'utf-8').trim();
-    if (ts) return ts;
-  }
+async function getLastDigestTime(sb: SupabaseClient): Promise<string> {
+  const { data } = await sb
+    .from('digest_state')
+    .select('value')
+    .eq('key', 'last_digest_at')
+    .maybeSingle();
+
+  if (data?.value) return data.value;
+
   // Default: 24 hours ago
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
-function saveLastDigestTime() {
-  writeFileSync(LAST_DIGEST_PATH, new Date().toISOString(), 'utf-8');
+async function saveLastDigestTime(sb: SupabaseClient) {
+  const now = new Date().toISOString();
+  await sb
+    .from('digest_state')
+    .upsert({ key: 'last_digest_at', value: now, updated_at: now });
 }
 
 async function generateAISummary(items: NewsItem[]): Promise<string | undefined> {
@@ -45,7 +46,6 @@ async function generateAISummary(items: NewsItem[]): Promise<string | undefined>
 
   log.info('Generating AI summary via Claude API...');
 
-  // Build a compact list of titles for the prompt
   const titles = items
     .slice(0, 30)
     .map((i) => `- [${i.source}] ${i.title}`)
@@ -107,8 +107,8 @@ async function main() {
   }
   const sb = createClient(supabaseUrl, supabaseKey);
 
-  // Fetch items since last digest
-  const since = getLastDigestTime();
+  // Get last digest timestamp from Supabase
+  const since = await getLastDigestTime(sb);
   log.info(`Fetching items since ${since}`);
 
   const { data, error } = await sb
@@ -128,7 +128,7 @@ async function main() {
       console.log('\n' + emptyMsg);
     } else {
       await sendToAdapter(adapter, emptyMsg);
-      saveLastDigestTime();
+      await saveLastDigestTime(sb);
     }
     return;
   }
@@ -148,7 +148,7 @@ async function main() {
     metadata: row.metadata,
   }));
 
-  log.info(`Fetched ${items.length} items since last digest`);
+  log.info(`Fetched ${items.length} new items since last digest`);
 
   // Build slotted display with tighter caps for human-readable digest
   const display = buildSlottedDisplay(items, {
@@ -166,14 +166,14 @@ async function main() {
   const summary = await generateAISummary(items);
 
   // Format message
-  const message = formatDigestMessage(display, summary);
+  const message = formatDigestMessage(display, items.length, summary);
 
   if (dryRun) {
     console.log('\n' + message);
     console.log(`\n--- Dry run complete. ${items.length} items, ${message.length} chars ---`);
   } else {
     await sendToAdapter(adapter, message);
-    saveLastDigestTime();
+    await saveLastDigestTime(sb);
     log.info(`Digest sent via ${adapter}`);
   }
 

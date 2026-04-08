@@ -16,6 +16,9 @@ export interface NewsItem {
 }
 
 export interface SlotOptions {
+  todayLimit?: number;
+  todayMaxPerSource?: number;
+  todayWindowHours?: number;
   officialLimit?: number;
   communityLimit?: number;
   researchLimit?: number;
@@ -43,12 +46,12 @@ const TIER1_RELEASE_SOURCES = new Set([
 ]);
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-function score(item: NewsItem): number {
+function sc(item: NewsItem): number {
   return (item.metadata?.relevanceScore as number) ?? item.score ?? 0;
 }
 
 function sortByScore(items: NewsItem[]): NewsItem[] {
-  return [...items].sort((a, b) => score(b) - score(a));
+  return [...items].sort((a, b) => sc(b) - sc(a));
 }
 
 function filterRecent(items: NewsItem[]): NewsItem[] {
@@ -141,7 +144,7 @@ function consolidateReleases(items: NewsItem[]): NewsItem[] {
     const newestTag = (newest.metadata?.tagName as string) ?? 'latest';
     const oldestTag = (oldest.metadata?.tagName as string) ?? 'oldest';
     const name = sourceName(source);
-    const hi = Math.max(...group.map(score));
+    const hi = Math.max(...group.map(sc));
 
     consolidated.push({
       ...newest,
@@ -162,24 +165,48 @@ export function buildSlottedDisplay(
   items: NewsItem[],
   opts?: SlotOptions,
 ): SlottedDisplay {
-  const oL = opts?.officialLimit ?? 20;
+  const tL = opts?.todayLimit ?? 10;
+  const tPS = opts?.todayMaxPerSource ?? 3;
+  const tWH = opts?.todayWindowHours ?? 24;
+  const oL = opts?.officialLimit ?? 10;
   const cL = opts?.communityLimit ?? 8;
   const rL = opts?.researchLimit ?? 6;
   const iL = opts?.industryLimit ?? 4;
-  const oPS = opts?.officialMaxPerSource ?? 5;
+  const oPS = opts?.officialMaxPerSource ?? 3;
   const cPS = opts?.communityMaxPerSource ?? 2;
   const rPS = opts?.researchMaxPerSource ?? 2;
   const iPS = opts?.industryMaxPerSource ?? 2;
 
   const used = new Set<string>();
+  const sections: SlottedSection[] = [];
+
+  // Section 0 — Today's Highlights
+  const todayCutoff = Date.now() - tWH * 60 * 60 * 1000;
+  const todayItems = items.filter((i) => {
+    const time = new Date(i.fetched_at).getTime();
+    return !isNaN(time) && time >= todayCutoff;
+  });
+
+  if (todayItems.length > 0) {
+    const todayTop = selectWithPerSourceCap(sortByScore(todayItems), tL, tPS);
+    for (const i of todayTop) used.add(i.url);
+    sections.push({ label: "Today's Highlights", emoji: '🆕', items: todayTop });
+  }
 
   // Section 1 — Official
   const officialRaw = items.filter(
     (i) =>
-      i.source_category === 'company_blog' ||
-      TIER1_RELEASE_SOURCES.has(i.source),
+      (i.source_category === 'company_blog' ||
+        TIER1_RELEASE_SOURCES.has(i.source)) &&
+      !used.has(i.url),
   );
   for (const i of officialRaw) used.add(i.url);
+  for (const i of items) {
+    if (i.source_category === 'company_blog' || TIER1_RELEASE_SOURCES.has(i.source)) {
+      used.add(i.url);
+    }
+  }
+
   const officialRecent = filterRecent(officialRaw);
   const officialConsolidated = consolidateReleases(officialRecent);
 
@@ -196,8 +223,11 @@ export function buildSlottedDisplay(
     oPS,
   );
   const official = [...cappedBlogs, ...releaseEntries].sort(
-    (a, b) => score(b) - score(a),
+    (a, b) => sc(b) - sc(a),
   );
+
+  if (official.length > 0)
+    sections.push({ label: 'Official Announcements', emoji: '📢', items: official });
 
   // Section 2 — Community
   const community = selectWithPerSourceCap(
@@ -208,6 +238,8 @@ export function buildSlottedDisplay(
     cPS,
   );
   for (const i of community) used.add(i.url);
+  if (community.length > 0)
+    sections.push({ label: 'Community Highlights', emoji: '🔥', items: community });
 
   // Section 3 — Research
   const research = selectWithPerSourceCap(
@@ -218,6 +250,8 @@ export function buildSlottedDisplay(
     rPS,
   );
   for (const i of research) used.add(i.url);
+  if (research.length > 0)
+    sections.push({ label: 'Research & Papers', emoji: '📄', items: research });
 
   // Section 4 — Industry
   const industry = selectWithPerSourceCap(
@@ -232,14 +266,6 @@ export function buildSlottedDisplay(
     iL,
     iPS,
   );
-
-  const sections: SlottedSection[] = [];
-  if (official.length > 0)
-    sections.push({ label: 'Official Announcements', emoji: '📢', items: official });
-  if (community.length > 0)
-    sections.push({ label: 'Community Highlights', emoji: '🔥', items: community });
-  if (research.length > 0)
-    sections.push({ label: 'Research & Papers', emoji: '📄', items: research });
   if (industry.length > 0)
     sections.push({ label: 'Industry News', emoji: '📰', items: industry });
 
@@ -256,7 +282,7 @@ export function formatSlottedText(display: SlottedDisplay): string {
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     sec.items.forEach((item, i) => {
       const name = sourceName(item.source);
-      const s = score(item);
+      const s = sc(item);
       lines.push(`${i + 1}. [${name}] ${item.title} (score: ${s})`);
     });
     lines.push('');

@@ -1,6 +1,7 @@
 /**
  * Slots-based display layout for get_top_picks.
- * Divides scored items into four sections:
+ * Divides scored items into five sections:
+ * 0. Today's Highlights (items from the last 24h) — shown first
  * 1. Official Announcements (company_blog + Tier 1 releases) — capped, releases consolidated
  * 2. Community Highlights (community sources) — capped
  * 3. Research & Papers (research sources) — capped
@@ -10,10 +11,13 @@
 import type { NewsItem, SourceCategory } from '../collectors/types.js';
 
 export interface SlotOptions {
-  officialLimit?: number;         // default 15
-  communityLimit?: number;        // default 5
-  researchLimit?: number;         // default 3
-  industryLimit?: number;         // default 2
+  todayLimit?: number;            // default 10
+  todayMaxPerSource?: number;     // default 3
+  todayWindowHours?: number;      // default 24
+  officialLimit?: number;         // default 10
+  communityLimit?: number;        // default 8
+  researchLimit?: number;         // default 6
+  industryLimit?: number;         // default 4
   officialMaxPerSource?: number;  // default 3
   communityMaxPerSource?: number; // default 2
   researchMaxPerSource?: number;  // default 2
@@ -85,14 +89,12 @@ function sourceDisplayName(source: string): string {
 
 /**
  * Consolidate GitHub release items from the same source into a single summary entry.
- * e.g. 4 Claude Code releases → "Claude Code: 4 releases this week (v2.1.89 → v2.1.92)"
  */
 function consolidateReleases(items: NewsItem[]): NewsItem[] {
   const releaseItems: NewsItem[] = [];
   const nonReleaseItems: NewsItem[] = [];
 
   for (const item of items) {
-    // Check if this is a github_releases item (source ends with _releases)
     if (item.metadata?.tagName !== undefined) {
       releaseItems.push(item);
     } else {
@@ -102,7 +104,6 @@ function consolidateReleases(items: NewsItem[]): NewsItem[] {
 
   if (releaseItems.length === 0) return items;
 
-  // Group by source
   const groups = new Map<string, NewsItem[]>();
   for (const item of releaseItems) {
     const existing = groups.get(item.source) ?? [];
@@ -110,7 +111,6 @@ function consolidateReleases(items: NewsItem[]): NewsItem[] {
     groups.set(item.source, existing);
   }
 
-  // Consolidate each group into one entry
   const consolidated: NewsItem[] = [];
   for (const [source, group] of groups) {
     if (group.length === 1) {
@@ -118,7 +118,6 @@ function consolidateReleases(items: NewsItem[]): NewsItem[] {
       continue;
     }
 
-    // Sort by publishedAt descending to find newest/oldest
     const sorted = [...group].sort((a, b) => {
       const ta = new Date(a.publishedAt ?? a.fetchedAt).getTime();
       const tb = new Date(b.publishedAt ?? b.fetchedAt).getTime();
@@ -150,7 +149,6 @@ function consolidateReleases(items: NewsItem[]): NewsItem[] {
 
 /**
  * Select top N items with a per-source diversity cap.
- * Items are assumed to be pre-sorted by score descending.
  */
 function selectWithPerSourceCap(
   sorted: NewsItem[],
@@ -175,38 +173,63 @@ export function buildSlottedDisplay(
   items: NewsItem[],
   options?: SlotOptions,
 ): SlottedDisplay {
-  const officialLimit = options?.officialLimit ?? 20;
+  const todayLimit = options?.todayLimit ?? 10;
+  const todayMaxPerSource = options?.todayMaxPerSource ?? 3;
+  const todayWindowHours = options?.todayWindowHours ?? 24;
+  const officialLimit = options?.officialLimit ?? 10;
   const communityLimit = options?.communityLimit ?? 8;
   const researchLimit = options?.researchLimit ?? 6;
   const industryLimit = options?.industryLimit ?? 4;
-  const officialMaxPerSource = options?.officialMaxPerSource ?? 5;
+  const officialMaxPerSource = options?.officialMaxPerSource ?? 3;
   const communityMaxPerSource = options?.communityMaxPerSource ?? 2;
   const researchMaxPerSource = options?.researchMaxPerSource ?? 2;
   const industryMaxPerSource = options?.industryMaxPerSource ?? 2;
 
   const usedUrls = new Set<string>();
+  const sections: SlottedSection[] = [];
+
+  // Section 0 — Today's Highlights: items fetched in the last N hours
+  const todayCutoff = Date.now() - todayWindowHours * 60 * 60 * 1000;
+  const todayItems = items.filter((item) => {
+    const time = new Date(item.fetchedAt).getTime();
+    return !isNaN(time) && time >= todayCutoff;
+  });
+
+  if (todayItems.length > 0) {
+    const todayTop = selectWithPerSourceCap(
+      sortByScore(todayItems),
+      todayLimit,
+      todayMaxPerSource,
+    );
+    for (const item of todayTop) usedUrls.add(item.url);
+    sections.push({ label: "Today's Highlights", items: todayTop });
+  }
 
   // Section 1 — Official Announcements: company_blog + Tier 1 releases
   const officialRaw = items.filter(
     (item) =>
-      item.sourceCategory === 'company_blog' ||
-      TIER1_RELEASE_SOURCES.has(item.source),
+      (item.sourceCategory === 'company_blog' ||
+        TIER1_RELEASE_SOURCES.has(item.source)) &&
+      !usedUrls.has(item.url),
   );
-  // Mark ALL official items as used (even if capped) to prevent leaking to other sections
+  // Mark ALL official items as used to prevent leaking to other sections
   for (const item of officialRaw) usedUrls.add(item.url);
+  // Also mark items that WOULD be official but are already in Today's Highlights
+  for (const item of items) {
+    if (item.sourceCategory === 'company_blog' || TIER1_RELEASE_SOURCES.has(item.source)) {
+      usedUrls.add(item.url);
+    }
+  }
 
-  // Filter to recent, consolidate releases, then guarantee releases are included
   const officialRecent = filterRecent(officialRaw);
   const officialConsolidated = consolidateReleases(officialRecent);
 
-  // Split into releases and blog posts — releases are exempt from per-source cap
   const releaseEntries = sortByScore(
     officialConsolidated.filter((item) => TIER1_RELEASE_SOURCES.has(item.source)),
   );
   const blogEntries = sortByScore(
     officialConsolidated.filter((item) => !TIER1_RELEASE_SOURCES.has(item.source)),
   );
-  // Apply per-source cap to blog posts, reserve slots for releases
   const blogSlots = officialLimit - releaseEntries.length;
   const cappedBlogs = selectWithPerSourceCap(
     blogEntries,
@@ -216,21 +239,31 @@ export function buildSlottedDisplay(
   const officialFinal = [...cappedBlogs, ...releaseEntries];
   officialFinal.sort((a, b) => getRelevanceScore(b) - getRelevanceScore(a));
 
-  // Section 2 — Community Highlights: community category, capped with per-source diversity
+  if (officialFinal.length > 0) {
+    sections.push({ label: 'Official Announcements', items: officialFinal });
+  }
+
+  // Section 2 — Community Highlights
   const communityItems = sortByScore(
     items.filter((item) => item.sourceCategory === 'community' && !usedUrls.has(item.url)),
   );
   const communityTop = selectWithPerSourceCap(communityItems, communityLimit, communityMaxPerSource);
   for (const item of communityTop) usedUrls.add(item.url);
+  if (communityTop.length > 0) {
+    sections.push({ label: 'Community Highlights', items: communityTop });
+  }
 
-  // Section 3 — Research & Papers: research category, capped with per-source diversity
+  // Section 3 — Research & Papers
   const researchItems = sortByScore(
     items.filter((item) => item.sourceCategory === 'research' && !usedUrls.has(item.url)),
   );
   const researchTop = selectWithPerSourceCap(researchItems, researchLimit, researchMaxPerSource);
   for (const item of researchTop) usedUrls.add(item.url);
+  if (researchTop.length > 0) {
+    sections.push({ label: 'Research & Papers', items: researchTop });
+  }
 
-  // Section 4 — Industry News: industry_news + remaining github, capped with per-source diversity
+  // Section 4 — Industry News
   const industryItems = sortByScore(
     items.filter(
       (item) =>
@@ -240,29 +273,16 @@ export function buildSlottedDisplay(
     ),
   );
   const industryTop = selectWithPerSourceCap(industryItems, industryLimit, industryMaxPerSource);
-
-  // Build sections, omitting empty ones
-  const sections: SlottedSection[] = [];
-
-  if (officialFinal.length > 0) {
-    sections.push({ label: 'Official Announcements', items: officialFinal });
-  }
-  if (communityTop.length > 0) {
-    sections.push({ label: 'Community Highlights', items: communityTop });
-  }
-  if (researchTop.length > 0) {
-    sections.push({ label: 'Research & Papers', items: researchTop });
-  }
   if (industryTop.length > 0) {
     sections.push({ label: 'Industry News', items: industryTop });
   }
 
   const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
-
   return { sections, totalItems };
 }
 
 const SECTION_ICONS: Record<string, string> = {
+  "Today's Highlights": '🆕',
   'Official Announcements': '📢',
   'Community Highlights': '🔥',
   'Research & Papers': '📄',

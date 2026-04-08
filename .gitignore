@@ -20,9 +20,6 @@ supabase/.branches/
 .DS_Store
 Thumbs.db
 
-# Digest state
-.last-digest
-
 # Logs
 logs/
 *.log

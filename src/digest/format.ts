@@ -6,6 +6,7 @@
 import type { SlottedDisplay } from '../utils/slots.js';
 
 const SECTION_ICONS: Record<string, string> = {
+  "Today's Highlights": '🆕',
   'Official Announcements': '📢',
   'Community Highlights': '🔥',
   'Research & Papers': '📄',
@@ -71,12 +72,16 @@ function sourceTag(source: string): string {
 
 export function formatDigestMessage(
   display: SlottedDisplay,
+  newItemCount?: number,
   summary?: string,
 ): string {
   const lines: string[] = [];
 
   lines.push('🤖 AI Newsroom Daily Digest');
   lines.push(`📅 ${formatDate()}`);
+  if (newItemCount !== undefined) {
+    lines.push(`🆕 ${newItemCount} new items since your last digest`);
+  }
   lines.push('');
 
   if (summary) {
