@@ -162,7 +162,7 @@ If you already have a Discord server you want to use, skip to step 5.
    | Secret name | Value |
    |---|---|
    | `SUPABASE_URL` | `https://jialdowpnekknmxrwrdq.supabase.co` |
-   | `SUPABASE_SERVICE_KEY` | Open your `.env` file to find this value (run `cat .env` in the project directory) |
+   | `SUPABASE_SERVICE_KEY` | Only needed if self-hosting your own Supabase. If using the hosted endpoint above, skip this secret. |
    | `DISCORD_WEBHOOK_URL` | The webhook URL you copied in Step 1 |
 
 5. The digest will now run **automatically every day at noon Eastern time**
