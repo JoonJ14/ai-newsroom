@@ -45,10 +45,10 @@ export async function handleGetTopPicks(
         industryMaxPerSource: 9999,
       }
     : {
-        officialLimit: (params.officialLimit as number) ?? 15,
-        communityLimit: (params.communityLimit as number) ?? 5,
-        researchLimit: (params.researchLimit as number) ?? 3,
-        industryLimit: (params.industryLimit as number) ?? 2,
+        officialLimit: params.officialLimit as number | undefined,
+        communityLimit: params.communityLimit as number | undefined,
+        researchLimit: params.researchLimit as number | undefined,
+        industryLimit: params.industryLimit as number | undefined,
       };
 
   const { data, error } = await sb
