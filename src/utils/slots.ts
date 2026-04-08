@@ -193,7 +193,9 @@ export function buildSlottedDisplay(
   const todayCutoff = Date.now() - todayWindowHours * 60 * 60 * 1000;
   const todayItems = items.filter((item) => {
     if (item.sourceCategory === 'company_blog' || TIER1_RELEASE_SOURCES.has(item.source)) return false;
-    const time = new Date(item.fetchedAt).getTime();
+    // Use publishedAt (when content was actually posted), fall back to fetchedAt
+    const ts = item.publishedAt ?? item.fetchedAt;
+    const time = new Date(ts).getTime();
     return !isNaN(time) && time >= todayCutoff;
   });
 
