@@ -12,7 +12,7 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 
 ### Claude Code
 ```bash
-claude mcp add --transport http ai-newsroom https://YOUR_SUPABASE_URL/functions/v1/mcp
+claude mcp add --transport http ai-newsroom https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp
 ```
 
 ### Claude Desktop / Any MCP Client
@@ -22,7 +22,7 @@ Add to your MCP config:
   "mcpServers": {
     "ai-newsroom": {
       "type": "http",
-      "url": "https://YOUR_SUPABASE_URL/functions/v1/mcp"
+      "url": "https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp"
     }
   }
 }
@@ -67,13 +67,11 @@ anthropics/claude-code, openai/codex, vllm-project/vllm
 
 | Tool | What it does |
 |------|-------------|
+| `get_top_picks` | Smart slotted display: official announcements, community highlights, research, industry — with diversity caps |
 | `get_trending` | All cached news. Filter by `source` or `category` |
-| `get_top_picks` | Top N items ranked by community score |
-| `search` | Keyword search across titles and summaries |
+| `search` | Full-text search across titles and summaries |
 | `get_new_since` | Everything added after a timestamp — "what's new since Friday?" |
 | `get_source_updates` | Items from one specific source |
-| `get_repo_quickstart` | GitHub repo metadata + install commands from README |
-| `get_paper_brief` | ArXiv paper title, authors, abstract, code link |
 | `check_status` | Cache health: last updated, item counts, per-source breakdown |
 
 ---
