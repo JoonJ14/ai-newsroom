@@ -7,17 +7,20 @@ import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('discord');
 
-function splitAtSections(message: string, maxLen: number): string[] {
-  const sections = message.split(/\n(?=📢|🔥|📄|📰|───────────────────)/);
+function splitForDiscord(message: string, maxLen: number): string[] {
   const chunks: string[] = [];
   let current = '';
 
-  for (const section of sections) {
-    if (current.length + section.length + 1 > maxLen && current.length > 0) {
+  // Split into individual lines, then reassemble respecting the limit
+  const lines = message.split('\n');
+
+  for (const line of lines) {
+    // If adding this line would exceed the limit, flush current chunk
+    if (current.length + line.length + 1 > maxLen && current.length > 0) {
       chunks.push(current.trimEnd());
       current = '';
     }
-    current += (current ? '\n' : '') + section;
+    current += (current ? '\n' : '') + line;
   }
   if (current) chunks.push(current.trimEnd());
 
@@ -28,7 +31,7 @@ export async function sendDiscordDigest(message: string): Promise<void> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) throw new Error('DISCORD_WEBHOOK_URL not set');
 
-  const chunks = splitAtSections(message, 2000);
+  const chunks = splitForDiscord(message, 2000);
   log.info(`Sending digest to Discord (${chunks.length} message(s))`);
 
   for (let i = 0; i < chunks.length; i++) {
