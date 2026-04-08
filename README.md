@@ -32,6 +32,81 @@ That's it. Start asking questions.
 
 ---
 
+## Step-by-Step Setup Guide
+
+Never used MCP before? No problem. Pick your platform and follow the numbered steps.
+
+### Option A: Claude Code (Terminal)
+
+If you use Claude Code in your terminal, this takes one command:
+
+1. Open your terminal
+2. Run this command (copy and paste the entire line):
+   ```bash
+   claude mcp add --transport http ai-newsroom https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp
+   ```
+3. That's it! Start a new Claude Code session by typing `claude`
+4. Try asking: "What's new in AI today?"
+
+Claude will now have access to real-time AI news from 22+ sources. You can ask things like:
+- "What are the latest Anthropic announcements?"
+- "Any interesting AI papers this week?"
+- "Search for news about Claude Code"
+- "What did I miss since Friday?"
+- "Show me everything — don't cap the results"
+
+### Option B: Claude Desktop (Mac/Windows App)
+
+If you use the Claude desktop app:
+
+1. Open Claude Desktop
+2. Click the menu icon in the top-left corner
+3. Go to **Settings** > **Developer** > **Edit Config**
+4. This opens a JSON file. Add the following (if the file is empty, paste the entire block. If it already has content, add the `"ai-newsroom"` entry inside the existing `"mcpServers"` section):
+   ```json
+   {
+     "mcpServers": {
+       "ai-newsroom": {
+         "type": "http",
+         "url": "https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp"
+       }
+     }
+   }
+   ```
+5. Save the file and restart Claude Desktop
+6. Start a new conversation and try: "What's the latest AI news?"
+
+### Option C: Cursor IDE
+
+1. Open Cursor Settings (`Cmd+Shift+P` > "Cursor Settings")
+2. Go to the **MCP** section
+3. Add a new MCP server with these settings:
+   - **Name:** ai-newsroom
+   - **Type:** http
+   - **URL:** `https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp`
+4. Save and restart Cursor
+5. In the AI chat, ask: "What's trending in AI right now?"
+
+---
+
+## What can you ask?
+
+Once connected, just talk to Claude naturally. Here are some examples:
+
+| What you want | What to ask |
+|---|---|
+| Quick daily briefing | "What's new in AI today?" |
+| Specific company news | "Any Anthropic announcements this week?" |
+| Search for a topic | "Search for news about MCP" |
+| Catch up after time off | "What did I miss since Friday?" |
+| Deep dive on trending | "Show me what's hot on HackerNews and Reddit" |
+| Research papers | "Any interesting AI papers published recently?" |
+| Release tracking | "What's the latest Claude Code version?" |
+| Full firehose | "Show me all the news, no limits" |
+| System health | "How fresh is the AI news data?" |
+
+---
+
 ## What problem does this solve?
 
 | Problem | AI Newsroom |
