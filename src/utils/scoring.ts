@@ -35,6 +35,7 @@ function recencyScore(item: NewsItem): number {
   const timestamp = item.publishedAt ?? item.fetchedAt;
   const ageMs = Date.now() - new Date(timestamp).getTime();
 
+  if (isNaN(ageMs)) return 0; // invalid timestamp → treat as old
   if (ageMs <= SIX_HOURS_MS) return 100;
   if (ageMs >= SEVEN_DAYS_MS) return 0;
 

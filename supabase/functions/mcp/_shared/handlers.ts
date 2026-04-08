@@ -131,14 +131,14 @@ export async function handleSearch(
 
   // If title-only search returns few results, also search summaries
   if (!error && (data?.length ?? 0) < 5) {
-    const { data: data2 } = await sb
+    const { data: data2, error: e2 } = await sb
       .from('news_items')
       .select('*')
       .textSearch('summary', queryStr, { type: 'websearch' })
       .order('score', { ascending: false })
       .limit(20);
 
-    if (data2 && data2.length > 0) {
+    if (!e2 && data2 && data2.length > 0) {
       const existingUrls = new Set((data ?? []).map((r: NewsItem) => r.url));
       for (const r of data2) {
         if (!existingUrls.has(r.url)) {
@@ -248,22 +248,25 @@ export async function handleGetSourceUpdates(
 
 export async function handleCheckStatus(sb: SupabaseClient) {
   // Total count
-  const { count: totalItems } = await sb
+  const { count: totalItems, error: e1 } = await sb
     .from('news_items')
     .select('id', { count: 'exact', head: true });
+  if (e1) throw new Error(e1.message);
 
   // Last updated
-  const { data: latestRow } = await sb
+  const { data: latestRow, error: e2 } = await sb
     .from('news_items')
     .select('fetched_at')
     .order('fetched_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
+  if (e2) throw new Error(e2.message);
 
   // Per-source breakdown
-  const { data: allItems } = await sb
+  const { data: allItems, error: e3 } = await sb
     .from('news_items')
     .select('source, fetched_at');
+  if (e3) throw new Error(e3.message);
 
   const breakdown: Record<string, { count: number; latest: string }> = {};
   for (const row of allItems ?? []) {
