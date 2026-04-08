@@ -193,9 +193,10 @@ export function buildSlottedDisplay(
   const todayCutoff = Date.now() - todayWindowHours * 60 * 60 * 1000;
   const todayItems = items.filter((item) => {
     if (item.sourceCategory === 'company_blog' || TIER1_RELEASE_SOURCES.has(item.source)) return false;
-    // Use publishedAt (when content was actually posted), fall back to fetchedAt
-    const ts = item.publishedAt ?? item.fetchedAt;
-    const time = new Date(ts).getTime();
+    // Only include items with a real publishedAt date — no fallback to fetchedAt
+    // Items without publishedAt (e.g. HF trending spaces) can't prove recency
+    if (!item.publishedAt) return false;
+    const time = new Date(item.publishedAt).getTime();
     return !isNaN(time) && time >= todayCutoff;
   });
 
