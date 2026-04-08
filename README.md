@@ -84,7 +84,28 @@ If you use the Claude desktop app:
 6. Save and restart Cursor
 7. In the AI chat, ask: **"What's trending in AI right now?"**
 
-### Option D: Any MCP-Compatible Client
+### Option D: Google AntiGravity IDE
+
+1. Open AntiGravity
+2. Click the **...** (three dots) button at the top of the Agent panel (right side)
+3. Click **MCP Servers** — this opens the MCP Store
+4. At the top, click **Manage MCP Servers**
+5. Click **View raw config** — this opens `mcp_config.json`
+6. Add the following to the config (if the file already has other MCP servers, add the `"ai-newsroom"` entry inside the existing `"mcpServers"` section, separated by a comma):
+   ```json
+   {
+     "mcpServers": {
+       "ai-newsroom": {
+         "type": "http",
+         "url": "https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp"
+       }
+     }
+   }
+   ```
+7. Save and close the config
+8. In the Agent panel, ask: **"What's the latest AI news?"**
+
+### Option E: Any Other MCP-Compatible Client
 
 Add this to your MCP configuration:
 ```json
