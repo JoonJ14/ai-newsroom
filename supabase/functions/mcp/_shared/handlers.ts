@@ -291,7 +291,7 @@ export async function handleCheckStatus(sb: SupabaseClient) {
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `Total items: ${totalItems ?? 0}`,
     `Last updated: ${lastUpdated}`,
-    `Retention: 7 days`,
+    `Retention: 90 days`,
     ``,
     `Per-source breakdown:`,
     ...sourcesBreakdown.map(
@@ -304,7 +304,7 @@ export async function handleCheckStatus(sb: SupabaseClient) {
     text,
     lastUpdated,
     totalItems: totalItems ?? 0,
-    retentionDays: 7,
+    retentionDays: 90,
     sourcesBreakdown,
   };
 }

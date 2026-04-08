@@ -8,7 +8,7 @@ AI Newsroom is an open-source, real-time AI/tech news aggregator exposed as an M
 ### Four Layers
 1. **Collectors** (`src/collectors/`) — TypeScript modules that fetch and normalize data from each source type (RSS, JSON API, GitHub API, HTML scrape). Each collector outputs a common schema: `{ title, url, source, sourceCategory, score, summary, timestamp }`. Triggered by GitHub Actions on a 6-hour cron schedule.
 
-2. **Storage** (Supabase) — PostgreSQL database via Supabase free tier. Single `news_items` table with auto-cleanup of items older than 7 days. Edge Functions serve the MCP endpoint.
+2. **Storage** (Supabase) — PostgreSQL database via Supabase free tier. Single `news_items` table with auto-cleanup of items older than 90 days. Edge Functions serve the MCP endpoint.
 
 3. **MCP Server** (`supabase/functions/mcp/`) — Supabase Edge Function implementing the MCP protocol. Exposes tools: `get_trending`, `get_top_picks`, `search`, `get_new_since`, `get_source_updates`, `get_repo_quickstart`, `get_paper_brief`, `check_status`.
 
@@ -33,7 +33,7 @@ Sources are defined in `config/sources.yaml`. Each source has:
 
 ## Key Design Decisions
 - **Pre-cached data, not on-demand scraping.** MCP calls read from DB — instant response, no waiting for scrapes.
-- **Refresh interval (6h) is independent of data retention (7 days).** Refresh = how often new data arrives. Retention = how far back users can look.
+- **Refresh interval (6h) is independent of data retention (90 days).** Refresh = how often new data arrives. Retention = how far back users can look.
 - **GitHub Actions for collectors, not Supabase cron.** More transparent, forkable, and decoupled from storage layer.
 - **TypeScript everywhere.** MCP ecosystem is TS-native; Supabase Edge Functions run Deno (TS); keeps one language across the project.
 - **Source customization via config.** Users can enable/disable individual sources or source groups without touching code.
@@ -60,7 +60,7 @@ CREATE INDEX idx_news_items_fetched_at ON news_items(fetched_at);
 CREATE INDEX idx_news_items_source_category ON news_items(source_category);
 ```
 
-Auto-cleanup via pg_cron or collector job: `DELETE FROM news_items WHERE fetched_at < NOW() - INTERVAL '7 days'`
+Auto-cleanup via pg_cron or collector job: `DELETE FROM news_items WHERE fetched_at < NOW() - INTERVAL '90 days'`
 
 ## MCP Tools
 | Tool | Description | Parameters |

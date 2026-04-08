@@ -1,15 +1,15 @@
-name: Collect AI News
+name: Daily AI News Digest
 
 on:
   schedule:
-    # Run every 6 hours: midnight, 6am, noon, 6pm UTC
-    - cron: '0 */6 * * *'
+    # Run every day at noon Eastern (16:00 UTC in EDT / 17:00 UTC in EST)
+    - cron: '0 16 * * *'
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
-  collect:
+  digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repository
@@ -24,14 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run collectors
+      - name: Send digest
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: npm run collect
-
-      - name: Cleanup old items (90-day retention)
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: npm run cleanup
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: npm run digest

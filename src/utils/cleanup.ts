@@ -1,6 +1,6 @@
 /**
  * Standalone cleanup script.
- * Deletes news_items where fetched_at < 7 days ago.
+ * Deletes news_items where fetched_at < 90 days ago.
  *
  * Usage: npm run cleanup
  */
@@ -13,8 +13,8 @@ const log = createLogger('cleanup');
 
 async function main() {
   log.info('Running cleanup...');
-  const deleted = await deleteOldItems(7);
-  log.info(`Cleanup complete: removed ${deleted} items older than 7 days`);
+  const deleted = await deleteOldItems(90);
+  log.info(`Cleanup complete: removed ${deleted} items older than 90 days`);
 }
 
 main().catch((err) => {

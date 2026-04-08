@@ -150,8 +150,17 @@ async function main() {
 
   log.info(`Fetched ${items.length} items since last digest`);
 
-  // Build slotted display
-  const display = buildSlottedDisplay(items);
+  // Build slotted display with tighter caps for human-readable digest
+  const display = buildSlottedDisplay(items, {
+    officialLimit: 10,
+    communityLimit: 4,
+    researchLimit: 3,
+    industryLimit: 2,
+    officialMaxPerSource: 3,
+    communityMaxPerSource: 2,
+    researchMaxPerSource: 2,
+    industryMaxPerSource: 2,
+  });
 
   // Optional AI summary
   const summary = await generateAISummary(items);

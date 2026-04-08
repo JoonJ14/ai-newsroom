@@ -257,8 +257,8 @@ async function main() {
 
   // Cleanup old items
   try {
-    const deleted = await deleteOldItems(7);
-    log.info(`Cleanup: removed ${deleted} items older than 7 days`);
+    const deleted = await deleteOldItems(90);
+    log.info(`Cleanup: removed ${deleted} items older than 90 days`);
   } catch (err) {
     log.error('Cleanup failed', (err as Error).message);
   }

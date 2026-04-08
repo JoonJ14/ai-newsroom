@@ -115,7 +115,7 @@ Once connected, just talk to Claude naturally. Here are some examples:
 | Asking Claude to search is slow and shallow | Pre-cached in DB, MCP returns instantly |
 | Too many sources to check manually | Aggregated from blogs, Reddit, HN, ArXiv, GitHub, HuggingFace |
 | Hard to know what's actually important | Community scores + optional AI relevance filtering |
-| Miss weekend announcements on Monday | 7-day retention — nothing gets lost |
+| Miss weekend announcements on Monday | 90-day retention — nothing gets lost |
 
 ---
 
@@ -165,9 +165,35 @@ Get a daily AI news briefing delivered to your messaging app, filtered by topics
 1. Copy `config/sources.yaml` and customize the `digest` section
 2. Set your delivery adapter and webhook URL in `.env`
 3. Optionally set `ANTHROPIC_API_KEY` for AI-powered relevance filtering
-4. Add a cron job: `0 7 * * * cd /path/to/ai-newsroom && npm run digest`
+4. Test with: `npm run digest -- --dry-run` (prints to stdout without sending)
+5. Send for real: `npm run digest`
 
-The digest pulls the latest items, scores them against your configured priority topics, and sends a formatted summary to your chosen platform.
+### Automatic Daily Digest
+
+**Option A: GitHub Actions (recommended — runs even if your machine is off)**
+
+The digest workflow is included at `.github/workflows/digest.yml`. To enable it:
+
+1. Go to your GitHub repo > Settings > Secrets and variables > Actions
+2. Add these secrets:
+   - `SUPABASE_URL` — your Supabase project URL
+   - `SUPABASE_SERVICE_KEY` — your Supabase service role key
+   - `DISCORD_WEBHOOK_URL` — your Discord webhook URL
+3. The digest runs automatically every day at noon Eastern (4:00 PM UTC)
+
+You can also trigger it manually from the Actions tab > Daily AI News Digest > Run workflow.
+
+**Option B: Local cron (if you prefer running on your own machine)**
+
+```bash
+# Default: noon
+./scripts/setup-cron.sh
+
+# Custom time: 9:30 AM
+./scripts/setup-cron.sh 9 30
+```
+
+Note: your machine must be on at the scheduled time for local cron to work.
 
 ---
 
