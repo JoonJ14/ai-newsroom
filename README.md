@@ -6,6 +6,10 @@
 
 Ask Claude *"what's new in AI today?"* and get a real answer, not stale training data.
 
+> **Don't want to set anything up? I built this for you and for all of us. Just join our Discord and get daily AI news delivered automatically at noon Eastern.**
+> 
+> **[Join the AI Newsroom Discord](https://discord.gg/xUCRZq9c)**
+
 ---
 
 ## What problem does this solve?
