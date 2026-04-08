@@ -2,8 +2,8 @@ name: Daily AI News Digest
 
 on:
   schedule:
-    # Run every day at noon Eastern (16:00 UTC in EDT / 17:00 UTC in EST)
-    - cron: '0 16 * * *'
+    # Run every day at 11:45 AM Eastern (15:45 UTC in EDT / 16:45 UTC in EST)
+    - cron: '45 15 * * *'
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
