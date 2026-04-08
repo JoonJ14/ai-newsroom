@@ -105,6 +105,7 @@ export function formatDigestMessage(
   lines.push('───────────────────');
   lines.push(`Total: ${display.totalItems} items | Powered by AI Newsroom`);
   lines.push('github.com/JoonJ14/ai-newsroom');
+  lines.push('Join us: discord.gg/xUCRZq9c');
 
   return lines.join('\n');
 }
