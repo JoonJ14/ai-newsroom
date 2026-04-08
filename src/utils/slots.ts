@@ -173,7 +173,7 @@ export function buildSlottedDisplay(
   items: NewsItem[],
   options?: SlotOptions,
 ): SlottedDisplay {
-  const todayLimit = options?.todayLimit ?? 10;
+  const todayLimit = options?.todayLimit ?? 5;
   const todayMaxPerSource = options?.todayMaxPerSource ?? 3;
   const todayWindowHours = options?.todayWindowHours ?? 24;
   const officialLimit = options?.officialLimit ?? 10;
@@ -188,9 +188,11 @@ export function buildSlottedDisplay(
   const usedUrls = new Set<string>();
   const sections: SlottedSection[] = [];
 
-  // Section 0 — Today's Highlights: items fetched in the last N hours
+  // Section 0 — Today's Highlights: recent non-official items
+  // Official items (company_blog + Tier 1 releases) go in their own section
   const todayCutoff = Date.now() - todayWindowHours * 60 * 60 * 1000;
   const todayItems = items.filter((item) => {
+    if (item.sourceCategory === 'company_blog' || TIER1_RELEASE_SOURCES.has(item.source)) return false;
     const time = new Date(item.fetchedAt).getTime();
     return !isNaN(time) && time >= todayCutoff;
   });
