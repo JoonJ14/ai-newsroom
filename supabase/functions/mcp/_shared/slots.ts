@@ -162,11 +162,11 @@ export function buildSlottedDisplay(
   items: NewsItem[],
   opts?: SlotOptions,
 ): SlottedDisplay {
-  const oL = opts?.officialLimit ?? 15;
-  const cL = opts?.communityLimit ?? 5;
-  const rL = opts?.researchLimit ?? 3;
-  const iL = opts?.industryLimit ?? 2;
-  const oPS = opts?.officialMaxPerSource ?? 3;
+  const oL = opts?.officialLimit ?? 20;
+  const cL = opts?.communityLimit ?? 8;
+  const rL = opts?.researchLimit ?? 6;
+  const iL = opts?.industryLimit ?? 4;
+  const oPS = opts?.officialMaxPerSource ?? 5;
   const cPS = opts?.communityMaxPerSource ?? 2;
   const rPS = opts?.researchMaxPerSource ?? 2;
   const iPS = opts?.industryMaxPerSource ?? 2;
