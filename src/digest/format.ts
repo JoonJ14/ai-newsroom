@@ -27,14 +27,16 @@ function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen - 3) + '...' : text;
 }
 
-/** Format a date as "Monday, April 7, 2026". */
+/** Format a date as "Monday, April 7, 2026" in Eastern time. */
 function formatDate(): string {
-  return new Date().toLocaleDateString('en-US', {
+  const formatter = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: 'America/New_York',
   });
+  return formatter.format(new Date());
 }
 
 /** Source display name for digest (shorter than slots version). */
