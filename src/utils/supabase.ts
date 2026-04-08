@@ -28,14 +28,19 @@ function getSupabaseClient(): SupabaseClient {
 
 /**
  * Upsert news items into the news_items table.
- * Uses (url, source) composite unique constraint for conflict resolution.
+ * Uses (url, source) composite unique constraint.
+ *
+ * fetched_at is omitted from the upsert payload so:
+ * - New rows get fetched_at = DEFAULT NOW() from the DB
+ * - Existing rows preserve their original fetched_at
+ * This prevents old items from appearing "new" on every collection run.
  */
 export async function upsertNewsItems(items: NewsItem[]): Promise<number> {
   if (items.length === 0) return 0;
 
   const sb = getSupabaseClient();
 
-  // Map from camelCase to snake_case DB columns
+  // Map to DB columns — fetched_at intentionally omitted
   const rows = items.map((item) => ({
     title: item.title,
     url: item.url,
@@ -45,12 +50,10 @@ export async function upsertNewsItems(items: NewsItem[]): Promise<number> {
     summary: item.summary ?? null,
     authors: item.authors ?? null,
     tags: item.tags,
-    fetched_at: item.fetchedAt,
     published_at: item.publishedAt ?? null,
     metadata: item.metadata ?? {},
   }));
 
-  // Upsert in batches of 500
   const BATCH_SIZE = 500;
   let upserted = 0;
 

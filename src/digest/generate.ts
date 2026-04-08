@@ -109,7 +109,8 @@ async function main() {
 
   // Get last digest timestamp from Supabase
   const since = await getLastDigestTime(sb);
-  log.info(`Fetching items since ${since}`);
+  const sinceAge = Math.round((Date.now() - new Date(since).getTime()) / 3600000);
+  log.info(`Last digest: ${since} (${sinceAge}h ago)`);
 
   const { data, error } = await sb
     .from('news_items')
