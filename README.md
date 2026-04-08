@@ -96,14 +96,17 @@ If you use the Claude desktop app:
    {
      "mcpServers": {
        "ai-newsroom": {
-         "type": "http",
-         "url": "https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp"
+         "command": "npx",
+         "args": ["-y", "mcp-remote", "https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp"]
        }
      }
    }
    ```
 7. Save and close the config
-8. In the Agent panel, ask: **"What's the latest AI news?"**
+8. Fully quit and restart AntiGravity (just closing the agent panel is not enough — the MCP tools load on startup)
+9. In the Agent panel, ask: **"What's the latest AI news?"**
+
+> **Note:** AntiGravity requires Node.js installed on your machine for `npx` to work. If you don't have it, download it from [nodejs.org](https://nodejs.org).
 
 ### Option E: Any Other MCP-Compatible Client
 
