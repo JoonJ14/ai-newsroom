@@ -11,17 +11,21 @@
 import type { NewsItem, SourceCategory } from '../collectors/types.js';
 
 export interface SlotOptions {
-  todayLimit?: number;            // default 10
-  todayMaxPerSource?: number;     // default 3
-  todayWindowHours?: number;      // default 24
-  officialLimit?: number;         // default 10
-  communityLimit?: number;        // default 8
-  researchLimit?: number;         // default 6
-  industryLimit?: number;         // default 4
-  officialMaxPerSource?: number;  // default 3
-  communityMaxPerSource?: number; // default 2
-  researchMaxPerSource?: number;  // default 2
-  industryMaxPerSource?: number;  // default 2
+  topStoryLimit?: number;
+  todayLimit?: number;
+  todayMaxPerSource?: number;
+  todayWindowHours?: number;
+  officialLimit?: number;
+  officialMaxPerSource?: number;
+  fieldLimit?: number;
+  fieldMaxPerSource?: number;
+  communityLimit?: number;
+  communityMaxPerSource?: number;
+  researchLimit?: number;
+  researchMaxPerSource?: number;
+  industryLimit?: number;
+  industryMaxPerSource?: number;
+  sourceDigestCaps?: Map<string, number>;
 }
 
 export interface SlottedSection {
@@ -34,7 +38,34 @@ export interface SlottedDisplay {
   totalItems: number;
 }
 
-const TIER1_RELEASE_SOURCES = new Set(['claude_code_releases', 'openai_codex_releases']);
+const TIER1_RELEASE_SOURCES = new Set([
+  'claude_code_releases',
+  'openai_codex_releases',
+]);
+
+const OFFICIAL_LAB_SOURCES = new Set([
+  'anthropic_blog',
+  'anthropic_changelog',
+  'claude_code_releases',
+  'openai_news',
+  'openai_codex_releases',
+  'google_ai_blog',
+  'deepmind_blog',
+]);
+
+const FROM_THE_FIELD_SOURCES = new Set([
+  'techcrunch_ai',
+  'venturebeat_ai',
+  'theverge_ai',
+  'mit_tech_review_ai',
+  'meta_ai_blog',
+  'xai_blog',
+  'nvidia_developer_blog',
+  'sam_altman_blog',
+  'steipete_blog',
+  'google_research',
+  'vllm_releases',
+]);
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 function getRelevanceScore(item: NewsItem): number {
@@ -81,6 +112,17 @@ const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   infoq_ai: 'InfoQ',
   thenewstack_ai: 'The New Stack',
   vllm_releases: 'vLLM',
+  karpathy_blog: 'Karpathy',
+  deepmind_blog: 'DeepMind',
+  meta_ai_blog: 'Meta AI',
+  xai_blog: 'xAI',
+  sam_altman_blog: 'Sam Altman',
+  steipete_blog: 'Peter Steinberger',
+  techcrunch_ai: 'TechCrunch',
+  venturebeat_ai: 'VentureBeat',
+  theverge_ai: 'The Verge',
+  mit_tech_review_ai: 'MIT Tech Review',
+  reddit_openai: 'r/OpenAI',
 };
 
 function sourceDisplayName(source: string): string {
@@ -173,113 +215,150 @@ export function buildSlottedDisplay(
   items: NewsItem[],
   options?: SlotOptions,
 ): SlottedDisplay {
+  const topStoryLimit = options?.topStoryLimit ?? 1;
   const todayLimit = options?.todayLimit ?? 5;
-  const todayMaxPerSource = options?.todayMaxPerSource ?? 3;
+  const todayMaxPerSource = options?.todayMaxPerSource ?? 2;
   const todayWindowHours = options?.todayWindowHours ?? 24;
-  const officialLimit = options?.officialLimit ?? 10;
-  const communityLimit = options?.communityLimit ?? 8;
-  const researchLimit = options?.researchLimit ?? 6;
-  const industryLimit = options?.industryLimit ?? 4;
-  const officialMaxPerSource = options?.officialMaxPerSource ?? 3;
+  const officialLimit = options?.officialLimit ?? 5;
+  const officialMaxPerSource = options?.officialMaxPerSource ?? 2;
+  const fieldLimit = options?.fieldLimit ?? 3;
+  const fieldMaxPerSource = options?.fieldMaxPerSource ?? 1;
+  const communityLimit = options?.communityLimit ?? 3;
   const communityMaxPerSource = options?.communityMaxPerSource ?? 2;
+  const researchLimit = options?.researchLimit ?? 3;
   const researchMaxPerSource = options?.researchMaxPerSource ?? 2;
-  const industryMaxPerSource = options?.industryMaxPerSource ?? 2;
+  const industryLimit = options?.industryLimit ?? 2;
+  const industryMaxPerSource = options?.industryMaxPerSource ?? 1;
+  const sourceDigestCaps = options?.sourceDigestCaps ?? new Map<string, number>();
 
   const usedUrls = new Set<string>();
   const sections: SlottedSection[] = [];
 
-  // Section 0 — Today's Highlights: recent non-official items
-  // Official items (company_blog + Tier 1 releases) go in their own section
+  function selectCapped(
+    sorted: NewsItem[],
+    limit: number,
+    maxPerSource: number,
+  ): NewsItem[] {
+    const result: NewsItem[] = [];
+    const sourceCounts = new Map<string, number>();
+    for (const item of sorted) {
+      if (result.length >= limit) break;
+      const count = sourceCounts.get(item.source) ?? 0;
+      const digestCap = sourceDigestCaps.get(item.source) ?? Infinity;
+      const effectiveCap = Math.min(maxPerSource, digestCap);
+      if (count >= effectiveCap) continue;
+      result.push(item);
+      sourceCounts.set(item.source, count + 1);
+    }
+    return result;
+  }
+
+  // Section 0 — Top Story
+  // Single highest-scoring item from the entire pool.
+  // Karpathy has scoreFloor=90 so he almost always wins when he posts.
+  // A major breaking story with high recency + community signal can also win.
+  const allSorted = sortByScore(filterRecent(items));
+  const topStoryItems = selectCapped(allSorted, topStoryLimit, 1);
+  for (const item of topStoryItems) usedUrls.add(item.url);
+  if (topStoryItems.length > 0) {
+    sections.push({ label: 'Top Story', items: topStoryItems });
+  }
+
+  // Section 1 — Today's Highlights
+  // Non-official items published in the last 24h.
+  // OFFICIAL_LAB_SOURCES are excluded here — they go in Official Announcements.
   const todayCutoff = Date.now() - todayWindowHours * 60 * 60 * 1000;
   const todayItems = items.filter((item) => {
-    if (item.sourceCategory === 'company_blog' || TIER1_RELEASE_SOURCES.has(item.source)) return false;
-    // Only include items with a real publishedAt date — no fallback to fetchedAt
-    // Items without publishedAt (e.g. HF trending spaces) can't prove recency
+    if (OFFICIAL_LAB_SOURCES.has(item.source)) return false;
     if (!item.publishedAt) return false;
     const time = new Date(item.publishedAt).getTime();
-    return !isNaN(time) && time >= todayCutoff;
+    return !isNaN(time) && time >= todayCutoff && !usedUrls.has(item.url);
   });
-
-  if (todayItems.length > 0) {
-    const todayTop = selectWithPerSourceCap(
-      sortByScore(todayItems),
-      todayLimit,
-      todayMaxPerSource,
-    );
-    for (const item of todayTop) usedUrls.add(item.url);
+  const todayTop = selectCapped(sortByScore(todayItems), todayLimit, todayMaxPerSource);
+  for (const item of todayTop) usedUrls.add(item.url);
+  if (todayTop.length > 0) {
     sections.push({ label: "Today's Highlights", items: todayTop });
   }
 
-  // Section 1 — Official Announcements: company_blog + Tier 1 releases
-  const officialRaw = items.filter(
-    (item) =>
-      (item.sourceCategory === 'company_blog' ||
-        TIER1_RELEASE_SOURCES.has(item.source)) &&
-      !usedUrls.has(item.url),
+  // Section 2 — Official Announcements
+  // Tier 1 official labs only: Anthropic, OpenAI, Google AI, DeepMind.
+  const officialRaw = filterRecent(
+    items.filter((item) => OFFICIAL_LAB_SOURCES.has(item.source) && !usedUrls.has(item.url))
   );
-  // Mark ALL official items as used to prevent leaking to other sections
   for (const item of officialRaw) usedUrls.add(item.url);
-  // Also mark items that WOULD be official but are already in Today's Highlights
-  for (const item of items) {
-    if (item.sourceCategory === 'company_blog' || TIER1_RELEASE_SOURCES.has(item.source)) {
-      usedUrls.add(item.url);
-    }
-  }
-
-  const officialRecent = filterRecent(officialRaw);
-  const officialConsolidated = consolidateReleases(officialRecent);
-
+  const officialConsolidated = consolidateReleases(officialRaw);
   const releaseEntries = sortByScore(
-    officialConsolidated.filter((item) => TIER1_RELEASE_SOURCES.has(item.source)),
+    officialConsolidated.filter((item) => TIER1_RELEASE_SOURCES.has(item.source))
   );
   const blogEntries = sortByScore(
-    officialConsolidated.filter((item) => !TIER1_RELEASE_SOURCES.has(item.source)),
+    officialConsolidated.filter((item) => !TIER1_RELEASE_SOURCES.has(item.source))
   );
   const blogSlots = officialLimit - releaseEntries.length;
-  const cappedBlogs = selectWithPerSourceCap(
-    blogEntries,
-    Math.max(0, blogSlots),
-    officialMaxPerSource,
-  );
+  const cappedBlogs = selectCapped(blogEntries, Math.max(0, blogSlots), officialMaxPerSource);
   const officialFinal = [...cappedBlogs, ...releaseEntries];
   officialFinal.sort((a, b) => getRelevanceScore(b) - getRelevanceScore(a));
-
   if (officialFinal.length > 0) {
     sections.push({ label: 'Official Announcements', items: officialFinal });
   }
 
-  // Section 2 — Community Highlights
-  const communityItems = sortByScore(
-    items.filter((item) => item.sourceCategory === 'community' && !usedUrls.has(item.url)),
+  // Section 3 — From the Field
+  // Tier 2: press + individuals + secondary labs.
+  // No score floors — compete purely on recency + community signal.
+  // Guaranteed dedicated slots so press is never crowded out by busy lab days.
+  const fieldItems = sortByScore(
+    filterRecent(
+      items.filter((item) =>
+        FROM_THE_FIELD_SOURCES.has(item.source) && !usedUrls.has(item.url)
+      )
+    )
   );
-  const communityTop = selectWithPerSourceCap(communityItems, communityLimit, communityMaxPerSource);
+  const fieldTop = selectCapped(fieldItems, fieldLimit, fieldMaxPerSource);
+  for (const item of fieldTop) usedUrls.add(item.url);
+  if (fieldTop.length > 0) {
+    sections.push({ label: 'From the Field', items: fieldTop });
+  }
+
+  // Section 4 — Community Highlights
+  const communityItems = sortByScore(
+    items.filter((item) =>
+      item.sourceCategory === 'community' &&
+      !OFFICIAL_LAB_SOURCES.has(item.source) &&
+      !FROM_THE_FIELD_SOURCES.has(item.source) &&
+      !usedUrls.has(item.url)
+    )
+  );
+  const communityTop = selectCapped(communityItems, communityLimit, communityMaxPerSource);
   for (const item of communityTop) usedUrls.add(item.url);
   if (communityTop.length > 0) {
     sections.push({ label: 'Community Highlights', items: communityTop });
   }
 
-  // Section 3 — Research & Papers
+  // Section 5 — Research & Papers
   const researchItems = sortByScore(
-    items.filter((item) => item.sourceCategory === 'research' && !usedUrls.has(item.url)),
+    items.filter((item) =>
+      item.sourceCategory === 'research' &&
+      !FROM_THE_FIELD_SOURCES.has(item.source) &&
+      !usedUrls.has(item.url)
+    )
   );
-  const researchTop = selectWithPerSourceCap(researchItems, researchLimit, researchMaxPerSource);
+  const researchTop = selectCapped(researchItems, researchLimit, researchMaxPerSource);
   for (const item of researchTop) usedUrls.add(item.url);
   if (researchTop.length > 0) {
     sections.push({ label: 'Research & Papers', items: researchTop });
   }
 
-  // Section 4 — Industry News
+  // Section 6 — Industry & Tools
   const industryItems = sortByScore(
-    items.filter(
-      (item) =>
-        (item.sourceCategory === 'industry_news' ||
-          item.sourceCategory === 'github') &&
-        !usedUrls.has(item.url),
-    ),
+    items.filter((item) =>
+      (item.sourceCategory === 'industry_news' || item.sourceCategory === 'github') &&
+      !OFFICIAL_LAB_SOURCES.has(item.source) &&
+      !FROM_THE_FIELD_SOURCES.has(item.source) &&
+      !usedUrls.has(item.url)
+    )
   );
-  const industryTop = selectWithPerSourceCap(industryItems, industryLimit, industryMaxPerSource);
+  const industryTop = selectCapped(industryItems, industryLimit, industryMaxPerSource);
   if (industryTop.length > 0) {
-    sections.push({ label: 'Industry News', items: industryTop });
+    sections.push({ label: 'Industry & Tools', items: industryTop });
   }
 
   const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
@@ -287,11 +366,13 @@ export function buildSlottedDisplay(
 }
 
 const SECTION_ICONS: Record<string, string> = {
+  'Top Story': '🔝',
   "Today's Highlights": '🆕',
   'Official Announcements': '📢',
+  'From the Field': '📰',
   'Community Highlights': '🔥',
   'Research & Papers': '📄',
-  'Industry News': '📰',
+  'Industry & Tools': '⚙️',
 };
 
 export function formatSlottedDisplayAsText(display: SlottedDisplay): string {

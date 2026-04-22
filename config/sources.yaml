@@ -3,14 +3,32 @@
 # Categories: company_blog, community, research, github, industry_news
 
 sources:
+
   # ============================================
-  # TIER 1: Company Blogs & Official Channels
+  # TIER 1 — Karpathy + Official labs
+  # Score floors: Karpathy=90, Anthropic=80, OpenAI=75, Google/DeepMind=70
   # ============================================
+
+  - id: karpathy_blog
+    name: Andrej Karpathy's Blog
+    type: rss
+    url: https://karpathy.bearblog.dev/feed/
+    category: company_blog
+    sourceTier: 1
+    digestMaxItems: 3
+    scoreFloor: 90
+    enabled: true
+    tags: [karpathy, ai-research, llm]
+    skipRelevanceFilter: true
+
   - id: anthropic_blog
     name: Anthropic News
     type: html_scrape
     url: https://www.anthropic.com/news
     category: company_blog
+    sourceTier: 1
+    digestMaxItems: 2
+    scoreFloor: 80
     enabled: true
     maxItems: 20
     tags: [anthropic, claude]
@@ -21,6 +39,9 @@ sources:
     type: html_scrape
     url: https://docs.anthropic.com/en/release-notes/overview
     category: company_blog
+    sourceTier: 1
+    digestMaxItems: 1
+    scoreFloor: 80
     enabled: true
     maxItems: 15
     tags: [anthropic, claude, api]
@@ -31,6 +52,9 @@ sources:
     type: github_releases
     url: https://api.github.com/repos/anthropics/claude-code/releases
     category: github
+    sourceTier: 1
+    digestMaxItems: 1
+    scoreFloor: 80
     enabled: true
     tags: [anthropic, claude-code]
     skipRelevanceFilter: true
@@ -40,6 +64,9 @@ sources:
     type: rss
     url: https://openai.com/news/rss.xml
     category: company_blog
+    sourceTier: 1
+    digestMaxItems: 2
+    scoreFloor: 75
     enabled: true
     tags: [openai, gpt]
     skipRelevanceFilter: true
@@ -49,6 +76,9 @@ sources:
     type: github_releases
     url: https://api.github.com/repos/openai/codex/releases
     category: github
+    sourceTier: 1
+    digestMaxItems: 1
+    scoreFloor: 75
     enabled: true
     tags: [openai, codex]
     skipRelevanceFilter: true
@@ -58,17 +88,94 @@ sources:
     type: rss
     url: https://blog.google/technology/ai/rss/
     category: company_blog
+    sourceTier: 1
+    digestMaxItems: 1
+    scoreFloor: 70
     enabled: true
-    tags: [google, gemini, deepmind]
+    tags: [google, gemini]
     skipRelevanceFilter: true
 
-  - id: google_research
-    name: Google Research Blog
+  - id: deepmind_blog
+    name: Google DeepMind Blog
     type: rss
-    url: https://blog.research.google/feeds/posts/default?alt=rss
-    category: research
+    url: https://deepmind.google/discover/blog/rss.xml
+    category: company_blog
+    sourceTier: 1
+    digestMaxItems: 1
+    scoreFloor: 70
     enabled: true
-    tags: [google, research]
+    tags: [deepmind, google, research]
+    skipRelevanceFilter: true
+
+  # ============================================
+  # TIER 2 — Press, individuals, secondary labs
+  # No score floors — compete on merit
+  # ============================================
+
+  - id: techcrunch_ai
+    name: TechCrunch AI
+    type: rss
+    url: https://techcrunch.com/category/artificial-intelligence/feed/
+    category: industry_news
+    sourceTier: 2
+    digestMaxItems: 2
+    enabled: true
+    tags: [news, industry]
+    skipRelevanceFilter: false
+
+  - id: venturebeat_ai
+    name: VentureBeat AI
+    type: rss
+    url: https://venturebeat.com/category/ai/feed/
+    category: industry_news
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [news, enterprise, industry]
+    skipRelevanceFilter: false
+
+  - id: theverge_ai
+    name: The Verge AI
+    type: rss
+    url: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+    category: industry_news
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [news, consumer, industry]
+    skipRelevanceFilter: false
+
+  - id: mit_tech_review_ai
+    name: MIT Technology Review
+    type: rss
+    url: https://www.technologyreview.com/feed/
+    category: industry_news
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [research, longform, industry]
+    skipRelevanceFilter: false
+
+  - id: meta_ai_blog
+    name: Meta AI Blog
+    type: html_scrape
+    url: https://ai.meta.com/blog/
+    category: company_blog
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [meta, llama, open-source]
+    skipRelevanceFilter: true
+
+  - id: xai_blog
+    name: xAI News
+    type: html_scrape
+    url: https://x.ai/news
+    category: company_blog
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: false # Disabled because x.ai blocks basic HTTP scraping with a 403 Forbidden (Cloudflare)
+    tags: [xai, grok]
     skipRelevanceFilter: true
 
   - id: nvidia_developer_blog
@@ -76,18 +183,68 @@ sources:
     type: rss
     url: https://developer.nvidia.com/blog/feed/
     category: company_blog
+    sourceTier: 2
+    digestMaxItems: 1
     enabled: true
     tags: [nvidia, cuda, gpu]
     skipRelevanceFilter: true
 
+  - id: sam_altman_blog
+    name: Sam Altman
+    type: rss
+    url: https://blog.samaltman.com/posts.atom
+    category: company_blog
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [openai, industry]
+    skipRelevanceFilter: true
+
+  - id: steipete_blog
+    name: Peter Steinberger
+    type: rss
+    url: https://steipete.me/rss.xml
+    category: company_blog
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [openclaw, agents, openai]
+    skipRelevanceFilter: true
+
+  - id: google_research
+    name: Google Research Blog
+    type: rss
+    url: https://blog.research.google/feeds/posts/default?alt=rss
+    category: research
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [google, research]
+    skipRelevanceFilter: true
+
+  - id: vllm_releases
+    name: vLLM Releases
+    type: github_releases
+    url: https://api.github.com/repos/vllm-project/vllm/releases
+    category: github
+    sourceTier: 2
+    digestMaxItems: 1
+    enabled: true
+    tags: [vllm, serving, inference]
+    skipRelevanceFilter: true
+
   # ============================================
-  # TIER 2: Community Signal
+  # TIER 3 — Community, research, industry
+  # Pure signal scoring — no floors
   # ============================================
+
   - id: hackernews_top
     name: Hacker News AI Stories
     type: hackernews_algolia
     url: https://hn.algolia.com/api/v1/search?query=AI&tags=story&numericFilters=points>5,created_at_i>NOW_MINUS_48H
     category: community
+    sourceTier: 3
+    digestMaxItems: 3
     enabled: true
     maxItems: 25
     tags: [community, tech, ai]
@@ -98,6 +255,8 @@ sources:
     type: hackernews_algolia
     url: https://hn.algolia.com/api/v1/search?tags=show_hn&numericFilters=created_at_i>NOW_MINUS_24H
     category: community
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     tags: [community, launches]
     skipRelevanceFilter: false
@@ -107,6 +266,8 @@ sources:
     type: reddit
     url: https://www.reddit.com/r/ClaudeAI/hot.json
     category: community
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     maxItems: 20
     tags: [reddit, claude, anthropic]
@@ -117,6 +278,8 @@ sources:
     type: reddit
     url: https://www.reddit.com/r/LocalLLaMA/hot.json
     category: community
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     maxItems: 20
     tags: [reddit, local-ai, models]
@@ -127,16 +290,32 @@ sources:
     type: reddit
     url: https://www.reddit.com/r/MachineLearning/hot.json
     category: community
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     maxItems: 20
     tags: [reddit, ml, research]
     skipRelevanceFilter: true
+
+  - id: reddit_openai
+    name: r/OpenAI
+    type: reddit
+    url: https://www.reddit.com/r/OpenAI/hot.json
+    category: community
+    sourceTier: 3
+    digestMaxItems: 2
+    enabled: true
+    maxItems: 20
+    tags: [reddit, openai, chatgpt]
+    skipRelevanceFilter: false
 
   - id: reddit_artificial
     name: r/artificial
     type: reddit
     url: https://www.reddit.com/r/artificial/hot.json
     category: community
+    sourceTier: 3
+    digestMaxItems: 1
     enabled: true
     maxItems: 15
     tags: [reddit, ai]
@@ -147,6 +326,8 @@ sources:
     type: json_api
     url: https://huggingface.co/api/daily_papers
     category: research
+    sourceTier: 3
+    digestMaxItems: 3
     enabled: true
     tags: [huggingface, papers, research]
     skipRelevanceFilter: true
@@ -156,6 +337,8 @@ sources:
     type: json_api
     url: https://huggingface.co/api/spaces?sort=trendingScore&limit=20
     category: community
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     tags: [huggingface, demos]
     skipRelevanceFilter: true
@@ -165,18 +348,19 @@ sources:
     type: github_trending
     url: https://github.com/trending
     category: github
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     tags: [github, trending, open-source]
     skipRelevanceFilter: false
 
-  # ============================================
-  # TIER 3: Research & Papers
-  # ============================================
   - id: arxiv_cs_ai
     name: ArXiv cs.AI
     type: rss
     url: https://rss.arxiv.org/rss/cs.AI
     category: research
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     maxItems: 15
     tags: [arxiv, research, ai]
@@ -187,6 +371,8 @@ sources:
     type: rss
     url: https://rss.arxiv.org/rss/cs.LG
     category: research
+    sourceTier: 3
+    digestMaxItems: 2
     enabled: true
     maxItems: 15
     tags: [arxiv, research, ml]
@@ -197,6 +383,8 @@ sources:
     type: rss
     url: https://rss.arxiv.org/rss/cs.CV
     category: research
+    sourceTier: 3
+    digestMaxItems: 1
     enabled: true
     maxItems: 15
     tags: [arxiv, research, vision, gesture]
@@ -207,19 +395,20 @@ sources:
     type: json_api
     url: https://dev.to/api/articles?tag=ai&top=1
     category: community
+    sourceTier: 3
+    digestMaxItems: 1
     enabled: true
     maxItems: 15
     tags: [devto, tutorials, community]
     skipRelevanceFilter: false
 
-  # ============================================
-  # TIER 4: Industry News
-  # ============================================
   - id: infoq_ai
     name: InfoQ AI & ML
     type: rss
     url: https://feed.infoq.com/ai-ml-data-eng
     category: industry_news
+    sourceTier: 3
+    digestMaxItems: 1
     enabled: true
     tags: [industry, enterprise]
     skipRelevanceFilter: true
@@ -229,31 +418,22 @@ sources:
     type: rss
     url: https://thenewstack.io/category/ai/feed/
     category: industry_news
+    sourceTier: 3
+    digestMaxItems: 1
     enabled: true
     tags: [industry, devops, ai]
     skipRelevanceFilter: true
 
-  # ============================================
-  # GitHub Release Watching (specific repos)
-  # ============================================
-  - id: vllm_releases
-    name: vLLM Releases
-    type: github_releases
-    url: https://api.github.com/repos/vllm-project/vllm/releases
-    category: github
-    enabled: true
-    tags: [vllm, serving, inference]
-    skipRelevanceFilter: true
-
-# ============================================
-# Source Groups (for quick enable/disable)
-# ============================================
 groups:
   anthropic: [anthropic_blog, anthropic_changelog, claude_code_releases]
-  openai: [openai_news, openai_codex_releases]
-  google: [google_ai_blog, google_research]
+  openai: [openai_news, openai_codex_releases, sam_altman_blog]
+  google: [google_ai_blog, deepmind_blog, google_research]
+  meta: [meta_ai_blog]
+  xai: [xai_blog]
   nvidia: [nvidia_developer_blog]
-  community: [hackernews_top, show_hn, reddit_claudeai, reddit_localllama, reddit_machinelearning, reddit_artificial, hf_trending_spaces, devto_ai]
+  individuals: [karpathy_blog, sam_altman_blog, steipete_blog]
+  press: [techcrunch_ai, venturebeat_ai, theverge_ai, mit_tech_review_ai]
+  community: [hackernews_top, show_hn, reddit_claudeai, reddit_localllama, reddit_machinelearning, reddit_artificial, reddit_openai, hf_trending_spaces, devto_ai]
   research: [hf_daily_papers, arxiv_cs_ai, arxiv_cs_lg, arxiv_cs_cv, google_research]
   github: [github_trending, claude_code_releases, openai_codex_releases, vllm_releases]
   industry: [infoq_ai, thenewstack_ai]

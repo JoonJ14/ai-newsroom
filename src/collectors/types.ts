@@ -38,6 +38,9 @@ export interface SourceConfig {
   tags: string[];
   refreshIntervalHours?: number;
   skipRelevanceFilter?: boolean;
+  sourceTier?: 1 | 2 | 3;
+  digestMaxItems?: number;
+  scoreFloor?: number;
 }
 
 /** Supported collector types */
