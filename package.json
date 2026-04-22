@@ -8,7 +8,6 @@
     "collect": "tsx src/collectors/index.ts",
     "collect:source": "tsx src/collectors/index.ts --source",
     "digest": "tsx src/digest/generate.ts",
-    "dev:mcp": "tsx src/mcp/tools.ts",
     "cleanup": "tsx src/utils/cleanup.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
