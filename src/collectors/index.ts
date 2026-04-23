@@ -224,7 +224,14 @@ async function main() {
   for (const item of relevanceFiltered) {
     const src = sourceMap.get(item.source);
     if (src) {
-      const relevanceScore = computeRelevanceScore(item, src.type, src.category, src.id);
+      const relevanceScore = computeRelevanceScore(
+        item,
+        src.type,
+        src.category,
+        src.id,
+        src.sourceTier,
+        src.scoreFloor,
+      );
       item.score = relevanceScore;
       item.metadata = { ...item.metadata, relevanceScore };
     }

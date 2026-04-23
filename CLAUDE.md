@@ -91,8 +91,6 @@ ai-newsroom/
 │   │   ├── huggingface.ts   # HuggingFace papers + spaces
 │   │   ├── scraper.ts       # Generic HTML scraper (fallback)
 │   │   └── types.ts         # Shared types: NewsItem, Source, etc.
-│   ├── mcp/
-│   │   └── tools.ts         # MCP tool definitions and handlers
 │   ├── digest/
 │   │   ├── generate.ts      # Pull data, filter by relevance, format briefing
 │   │   ├── adapters/
@@ -123,8 +121,7 @@ ai-newsroom/
 - `npm run collect` — Run all enabled collectors once (manual trigger)
 - `npm run collect -- --source anthropic_blog` — Run a single collector
 - `npm run digest` — Generate and send personal digest
-- `npm run dev:mcp` — Run MCP server locally for testing
-- `supabase functions serve mcp` — Run Edge Function locally
+- `supabase functions serve mcp` — Run Edge Function locally (this is the MCP server endpoint)
 
 ## Environment Variables
 ```

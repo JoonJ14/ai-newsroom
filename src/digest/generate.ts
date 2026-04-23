@@ -8,9 +8,13 @@
 
 import 'dotenv/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYAML } from 'yaml';
 import { createLogger } from '../utils/logger.js';
 import { buildSlottedDisplay } from '../utils/slots.js';
-import type { NewsItem, SourceCategory } from '../collectors/types.js';
+import type { NewsItem, SourceCategory, SourceConfig, SourcesConfig } from '../collectors/types.js';
 import { formatDigestMessage } from './format.js';
 import { loadDigestConfig } from './config.js';
 import { sendDiscordDigest } from './adapters/discord.js';
@@ -19,6 +23,16 @@ import { sendSlackDigest } from './adapters/slack.js';
 import { sendIMessageDigest } from './adapters/imessage.js';
 
 const log = createLogger('digest');
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+function loadSourceConfigs(): SourceConfig[] {
+  const configPath = resolve(__dirname, '../../config/sources.yaml');
+  const raw = readFileSync(configPath, 'utf-8');
+  const config: SourcesConfig = parseYAML(raw);
+  return config.sources;
+}
 
 async function getLastDigestTime(sb: SupabaseClient): Promise<string> {
   const { data } = await sb
@@ -152,15 +166,29 @@ async function main() {
   log.info(`Fetched ${items.length} new items since last digest`);
 
   // Build slotted display with tighter caps for human-readable digest
+  const allSourceConfigs = loadSourceConfigs();
+  const sourceDigestCaps = new Map<string, number>();
+  for (const src of allSourceConfigs) {
+    if (src.digestMaxItems != null) {
+      sourceDigestCaps.set(src.id, src.digestMaxItems);
+    }
+  }
+
   const display = buildSlottedDisplay(items, {
-    officialLimit: 10,
-    communityLimit: 4,
-    researchLimit: 3,
-    industryLimit: 2,
-    officialMaxPerSource: 3,
+    topStoryLimit: 1,
+    todayLimit: 5,
+    todayMaxPerSource: 2,
+    officialLimit: 5,
+    officialMaxPerSource: 2,
+    fieldLimit: 3,
+    fieldMaxPerSource: 1,
+    communityLimit: 3,
     communityMaxPerSource: 2,
+    researchLimit: 3,
     researchMaxPerSource: 2,
-    industryMaxPerSource: 2,
+    industryLimit: 2,
+    industryMaxPerSource: 1,
+    sourceDigestCaps,
   });
 
   // Optional AI summary

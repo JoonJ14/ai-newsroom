@@ -17,6 +17,8 @@ const log = createLogger('scraper');
 const SCRAPERS: Record<string, (html: string, source: SourceConfig) => NewsItem[]> = {
   anthropic_blog: scrapeAnthropicNews,
   anthropic_changelog: scrapeAnthropicChangelog,
+  meta_ai_blog: scrapeMetaAIBlog,
+  xai_blog: scrapeXAINews,
 };
 
 export async function collectHTMLScrape(source: SourceConfig): Promise<NewsItem[]> {
@@ -152,6 +154,96 @@ function scrapeAnthropicChangelog(html: string, source: SourceConfig): NewsItem[
       publishedAt,
     });
   }
+
+  return items;
+}
+
+/**
+ * Scrape Meta AI blog at ai.meta.com/blog/
+ */
+function scrapeMetaAIBlog(html: string, source: SourceConfig): NewsItem[] {
+  const $ = cheerio.load(html);
+  const now = new Date().toISOString();
+  const items: NewsItem[] = [];
+  const MAX_ITEMS = 5;
+
+  $('a[href*="/blog/"]').each((_i, el) => {
+    if (items.length >= MAX_ITEMS) return false;
+    const $el = $(el);
+    const href = $el.attr('href');
+    if (!href || href === '/blog/' || href === '/blog') return;
+
+    const title =
+      $el.find('h2, h3, h4').first().text().trim() ||
+      $el.attr('aria-label')?.trim() ||
+      $el.text().trim().split('\n')[0]?.trim();
+    if (!title || title.length < 10) return;
+
+    const url = href.startsWith('http') ? href : `https://ai.meta.com${href}`;
+    if (items.some((item) => item.url === url)) return;
+
+    const summary = $el.find('p').first().text().trim() || undefined;
+    const dateText =
+      $el.find('time').first().attr('datetime') ||
+      $el.find('time').first().text().trim();
+    const publishedAt = dateText ? safeISODate(dateText) : undefined;
+
+    items.push({
+      title,
+      url,
+      source: source.id,
+      sourceCategory: source.category,
+      score: 0,
+      summary,
+      tags: source.tags,
+      fetchedAt: now,
+      publishedAt,
+    });
+  });
+
+  return items;
+}
+
+/**
+ * Scrape xAI news page at x.ai/news
+ */
+function scrapeXAINews(html: string, source: SourceConfig): NewsItem[] {
+  const $ = cheerio.load(html);
+  const now = new Date().toISOString();
+  const items: NewsItem[] = [];
+  const MAX_ITEMS = 5;
+
+  $('a[href*="/news/"]').each((_i, el) => {
+    if (items.length >= MAX_ITEMS) return false;
+    const $el = $(el);
+    const href = $el.attr('href');
+    if (!href || href === '/news' || href === '/news/') return;
+
+    const title =
+      $el.find('h2, h3, h4, p').first().text().trim() ||
+      $el.attr('aria-label')?.trim() ||
+      $el.text().trim().split('\n')[0]?.trim();
+    if (!title || title.length < 10) return;
+
+    const url = href.startsWith('http') ? href : `https://x.ai${href}`;
+    if (items.some((item) => item.url === url)) return;
+
+    const dateText =
+      $el.find('time').first().attr('datetime') ||
+      $el.find('time').first().text().trim();
+    const publishedAt = dateText ? safeISODate(dateText) : undefined;
+
+    items.push({
+      title,
+      url,
+      source: source.id,
+      sourceCategory: source.category,
+      score: 0,
+      tags: source.tags,
+      fetchedAt: now,
+      publishedAt,
+    });
+  });
 
   return items;
 }
