@@ -433,6 +433,16 @@ npm run dev:mcp
 
 ---
 
+## Keeping the Automation Alive
+
+GitHub automatically disables scheduled workflows after 60 days of repository inactivity. This project is unusually exposed to that rule: the collectors write their results to Supabase, not to git, so a perfectly healthy pipeline can run for months and produce zero commits. That is exactly what happened in June 2026 — the last commit was in April, GitHub disabled both `collect.yml` and `digest.yml`, and news collection silently stopped even though nothing in the code was broken.
+
+`heartbeat.yml` exists solely to prevent a repeat. It runs weekly, writes the current UTC timestamp to `.github/heartbeat.txt`, and commits it. That file is generated and has no functional purpose — nothing reads it, and it can be deleted and regenerated freely. The workflow is deliberately standalone rather than a step inside `collect.yml`: if it were attached to the collectors, a broken scraper would take down the heartbeat at precisely the moment it is needed most.
+
+**Known risk worth recording:** it is not fully confirmed that commits authored by `github-actions[bot]` using the built-in `GITHUB_TOKEN` satisfy GitHub's definition of "repository activity." If the scheduled workflows are ever auto-disabled again despite the heartbeat running on schedule, the fix is to swap `GITHUB_TOKEN` for a fine-grained personal access token with `contents: write`, stored as a repo secret and passed to the checkout step. GitHub emails the repository owner before disabling a workflow, so that warning email is the tripwire — do not ignore it.
+
+---
+
 ## Troubleshooting
 
 **"Claude doesn't seem to know about AI news"**
