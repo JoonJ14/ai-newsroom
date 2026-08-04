@@ -3,6 +3,9 @@
  */
 
 export interface NewsItem {
+  /** Primary key. Identity is per-row: the unique index is (url, source), so
+   *  two sources carrying the same link are distinct rows. */
+  id?: string;
   title: string;
   url: string;
   source: string;
@@ -27,6 +30,13 @@ export interface SlotOptions {
   communityMaxPerSource?: number;
   researchMaxPerSource?: number;
   industryMaxPerSource?: number;
+  /**
+   * Drop every non-numeric reduction as well as the caps: the 7-day recency
+   * window on official items and the collapsing of multiple releases into one.
+   * Raising the limits alone does not make every cached row reachable, so
+   * "show everything" needs this too.
+   */
+  unfiltered?: boolean;
 }
 
 export interface SlottedSection {
@@ -45,6 +55,11 @@ const TIER1_RELEASE_SOURCES = new Set([
   'openai_codex_releases',
 ]);
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Row identity for dedup. Falls back to url+source when id is absent. */
+function key(item: NewsItem): string {
+  return item.id ?? `${item.url}\u0000${item.source}`;
+}
 
 function sc(item: NewsItem): number {
   return (item.metadata?.relevanceScore as number) ?? item.score ?? 0;
@@ -86,14 +101,25 @@ const SOURCE_NAMES: Record<string, string> = {
   openai_news: 'OpenAI',
   google_ai_blog: 'Google AI',
   google_research: 'Google Research',
+  deepmind_blog: 'Google DeepMind',
+  meta_ai_blog: 'Meta AI',
+  xai_blog: 'xAI',
   nvidia_developer_blog: 'NVIDIA',
+  karpathy_blog: 'Andrej Karpathy',
+  sam_altman_blog: 'Sam Altman',
+  steipete_blog: 'Peter Steinberger',
   claude_code_releases: 'Claude Code',
   openai_codex_releases: 'OpenAI Codex',
+  techcrunch_ai: 'TechCrunch',
+  venturebeat_ai: 'VentureBeat',
+  theverge_ai: 'The Verge',
+  mit_tech_review_ai: 'MIT Tech Review',
   hackernews_top: 'Hacker News',
   show_hn: 'Show HN',
   reddit_claudeai: 'r/ClaudeAI',
   reddit_localllama: 'r/LocalLLaMA',
   reddit_machinelearning: 'r/MachineLearning',
+  reddit_openai: 'r/OpenAI',
   reddit_artificial: 'r/artificial',
   hf_daily_papers: 'HF Papers',
   hf_trending_spaces: 'HF Spaces',
@@ -165,17 +191,39 @@ export function buildSlottedDisplay(
   items: NewsItem[],
   opts?: SlotOptions,
 ): SlottedDisplay {
-  const tL = opts?.todayLimit ?? 5;
-  const tPS = opts?.todayMaxPerSource ?? 3;
-  const tWH = opts?.todayWindowHours ?? 24;
-  const oL = opts?.officialLimit ?? 10;
-  const cL = opts?.communityLimit ?? 8;
-  const rL = opts?.researchLimit ?? 6;
-  const iL = opts?.industryLimit ?? 4;
-  const oPS = opts?.officialMaxPerSource ?? 3;
-  const cPS = opts?.communityMaxPerSource ?? 2;
-  const rPS = opts?.researchMaxPerSource ?? 2;
-  const iPS = opts?.industryMaxPerSource ?? 2;
+  // The tool schema only says "number", so a caller can send a negative or NaN
+  // limit. Those must not reach slice()/comparisons: slice(0, -1) has
+  // from-the-end semantics and would drop the last entry instead of returning
+  // none, and NaN comparisons are silently always false.
+  const limit = (value: number | undefined, fallback: number): number => {
+    if (value === undefined || Number.isNaN(value)) return fallback;
+    if (value < 0) return 0;
+    // Floor finite values: slice() truncates a fractional limit while
+    // selectWithPerSourceCap() checks before pushing and so effectively rounds
+    // up, meaning officialLimit: 1.5 could yield two items.
+    return Number.isFinite(value) ? Math.floor(value) : value;
+  };
+
+  // Durations are not counts: flooring turns a legitimate 0.5-hour window into
+  // zero. Only negatives and NaN are corrected.
+  const duration = (value: number | undefined, fallback: number): number => {
+    if (value === undefined || Number.isNaN(value)) return fallback;
+    return value < 0 ? 0 : value;
+  };
+
+  const tL = limit(opts?.todayLimit, 5);
+  const tPS = limit(opts?.todayMaxPerSource, 3);
+  const tWH = duration(opts?.todayWindowHours, 24);
+  const oL = limit(opts?.officialLimit, 10);
+  const cL = limit(opts?.communityLimit, 8);
+  const rL = limit(opts?.researchLimit, 6);
+  const iL = limit(opts?.industryLimit, 4);
+  const oPS = limit(opts?.officialMaxPerSource, 3);
+  const cPS = limit(opts?.communityMaxPerSource, 2);
+  const rPS = limit(opts?.researchMaxPerSource, 2);
+  const iPS = limit(opts?.industryMaxPerSource, 2);
+
+  const unfiltered = opts?.unfiltered === true;
 
   const used = new Set<string>();
   const sections: SlottedSection[] = [];
@@ -190,9 +238,11 @@ export function buildSlottedDisplay(
     return !isNaN(time) && time >= todayCutoff;
   });
 
-  if (todayItems.length > 0) {
-    const todayTop = selectWithPerSourceCap(sortByScore(todayItems), tL, tPS);
-    for (const i of todayTop) used.add(i.url);
+  const todayTop = selectWithPerSourceCap(sortByScore(todayItems), tL, tPS);
+  // Presence is decided AFTER the limit is applied — todayLimit: 0 previously
+  // emitted an empty section while every other zero-limit section was omitted.
+  if (todayTop.length > 0) {
+    for (const i of todayTop) used.add(key(i));
     sections.push({ label: "Today's Highlights", emoji: '🆕', items: todayTop });
   }
 
@@ -201,17 +251,19 @@ export function buildSlottedDisplay(
     (i) =>
       (i.source_category === 'company_blog' ||
         TIER1_RELEASE_SOURCES.has(i.source)) &&
-      !used.has(i.url),
+      !used.has(key(i)),
   );
-  for (const i of officialRaw) used.add(i.url);
+  for (const i of officialRaw) used.add(key(i));
   for (const i of items) {
     if (i.source_category === 'company_blog' || TIER1_RELEASE_SOURCES.has(i.source)) {
-      used.add(i.url);
+      used.add(key(i));
     }
   }
 
-  const officialRecent = filterRecent(officialRaw);
-  const officialConsolidated = consolidateReleases(officialRecent);
+  const officialRecent = unfiltered ? officialRaw : filterRecent(officialRaw);
+  const officialConsolidated = unfiltered
+    ? officialRecent
+    : consolidateReleases(officialRecent);
 
   const releaseEntries = sortByScore(
     officialConsolidated.filter((i) => TIER1_RELEASE_SOURCES.has(i.source)),
@@ -219,13 +271,17 @@ export function buildSlottedDisplay(
   const blogEntries = sortByScore(
     officialConsolidated.filter((i) => !TIER1_RELEASE_SOURCES.has(i.source)),
   );
-  const blogSlots = oL - releaseEntries.length;
+  // Releases take priority but are still bounded by officialLimit — previously
+  // they were appended uncapped, so with more release entries than the limit
+  // the section could exceed the maximum the caller asked for.
+  const cappedReleases = releaseEntries.slice(0, oL);
+  const blogSlots = oL - cappedReleases.length;
   const cappedBlogs = selectWithPerSourceCap(
     blogEntries,
     Math.max(0, blogSlots),
     oPS,
   );
-  const official = [...cappedBlogs, ...releaseEntries].sort(
+  const official = [...cappedBlogs, ...cappedReleases].sort(
     (a, b) => sc(b) - sc(a),
   );
 
@@ -235,24 +291,24 @@ export function buildSlottedDisplay(
   // Section 2 — Community
   const community = selectWithPerSourceCap(
     sortByScore(
-      items.filter((i) => i.source_category === 'community' && !used.has(i.url)),
+      items.filter((i) => i.source_category === 'community' && !used.has(key(i))),
     ),
     cL,
     cPS,
   );
-  for (const i of community) used.add(i.url);
+  for (const i of community) used.add(key(i));
   if (community.length > 0)
     sections.push({ label: 'Community Highlights', emoji: '🔥', items: community });
 
   // Section 3 — Research
   const research = selectWithPerSourceCap(
     sortByScore(
-      items.filter((i) => i.source_category === 'research' && !used.has(i.url)),
+      items.filter((i) => i.source_category === 'research' && !used.has(key(i))),
     ),
     rL,
     rPS,
   );
-  for (const i of research) used.add(i.url);
+  for (const i of research) used.add(key(i));
   if (research.length > 0)
     sections.push({ label: 'Research & Papers', emoji: '📄', items: research });
 
@@ -263,7 +319,7 @@ export function buildSlottedDisplay(
         (i) =>
           (i.source_category === 'industry_news' ||
             i.source_category === 'github') &&
-          !used.has(i.url),
+          !used.has(key(i)),
       ),
     ),
     iL,

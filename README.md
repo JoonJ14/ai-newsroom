@@ -2,7 +2,7 @@
 
 > Keeping up with AI news is a full-time job. Let your AI do it instead.
 
-**AI Newsroom** is a real-time AI/tech news aggregator that scrapes 22+ sources every 6 hours and makes everything available via MCP (Model Context Protocol). Connect it to Claude Code, Claude Desktop, or any MCP client — one command, no install, no auth.
+**AI Newsroom** is a real-time AI/tech news aggregator that scrapes 35 sources every 6 hours and makes everything available via MCP (Model Context Protocol). Connect it to Claude Code, Claude Desktop, or any MCP client — one command, no install, no auth.
 
 Ask Claude *"what's new in AI today?"* and get a real answer, not stale training data.
 
@@ -16,7 +16,7 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 
 | Problem | AI Newsroom |
 |---------|-------------|
-| Claude doesn't know what happened after training cutoff | 22+ sources scraped every 6h, always current |
+| Claude doesn't know what happened after training cutoff | 35 sources scraped every 6h, always current |
 | Asking Claude to search is slow and shallow | Pre-cached in DB, MCP returns instantly |
 | Too many sources to check manually | Aggregated from blogs, Reddit, HN, ArXiv, GitHub, HuggingFace |
 | Hard to know what's actually important | Relevance scoring + AI filtering separates signal from noise |
@@ -136,6 +136,8 @@ Once connected, just talk to Claude naturally. Here are some examples:
 | Catch up after time off | "What did I miss since Friday?" |
 | Deep dive on trending | "Show me what's hot on HackerNews and Reddit" |
 | Research papers | "Any interesting AI papers published recently?" |
+| Read a specific paper | "What's arXiv 2501.12948 about?" |
+| Try a repo you just saw | "How do I get started with anthropics/claude-code?" |
 | Release tracking | "What's the latest Claude Code version?" |
 | Full firehose | "Show me all the news, no limits" |
 | System health | "How fresh is the AI news data?" |
@@ -283,26 +285,30 @@ This only works on Mac computers with the Messages app signed in.
 
 ---
 
-## Sources (22+)
+## Sources (35)
 
-### Company Blogs & Official Channels
-Anthropic Blog, Anthropic Developer Changelog, Claude Code GitHub Releases, OpenAI News, OpenAI Codex CLI Releases, Google AI Blog, Google Research Blog, NVIDIA Developer Blog
+Section headings match the `category` value you can filter on with `get_trending`.
 
-### Community Signal
-Hacker News (Top + Show HN), Reddit (r/ClaudeAI, r/LocalLLaMA, r/MachineLearning, r/artificial), HuggingFace Daily Papers, HuggingFace Trending Spaces, GitHub Trending, Dev.to AI
+### Company Blogs & Official Channels — `company_blog` (11)
+Anthropic News, Anthropic Developer Changelog, OpenAI News, Google AI Blog, Google DeepMind Blog, Meta AI Blog, NVIDIA Developer Blog, xAI News*, Andrej Karpathy's Blog, Sam Altman, Peter Steinberger
 
-### Research
-ArXiv cs.AI, ArXiv cs.LG (Machine Learning), ArXiv cs.CV (Computer Vision)
+### Community Signal — `community` (9)
+Hacker News AI Stories, Show HN (24h), r/ClaudeAI, r/LocalLLaMA, r/MachineLearning, r/OpenAI, r/artificial, HuggingFace Trending Spaces, Dev.to AI Tag
 
-### Industry News
-InfoQ AI & ML, The New Stack AI
+### Research — `research` (5)
+ArXiv cs.AI, ArXiv cs.LG (Machine Learning), ArXiv cs.CV (Computer Vision), HuggingFace Daily Papers, Google Research Blog
 
-### GitHub Release Watching
-anthropics/claude-code, openai/codex, vllm-project/vllm
+### Industry News — `industry_news` (6)
+TechCrunch AI, VentureBeat AI, The Verge AI, MIT Technology Review, InfoQ AI & ML, The New Stack AI
+
+### GitHub — `github` (4)
+GitHub Trending Repositories, Claude Code GitHub Releases (`anthropics/claude-code`), OpenAI Codex CLI Releases (`openai/codex`), vLLM Releases (`vllm-project/vllm`)
+
+<sub>\* xAI News is defined but disabled by default — x.ai returns 403 to plain HTTP scraping (Cloudflare). 34 of the 35 sources are enabled out of the box.</sub>
 
 ---
 
-## MCP Tools
+## MCP Tools (8)
 
 These are the tools Claude uses behind the scenes when you ask questions:
 
@@ -313,6 +319,8 @@ These are the tools Claude uses behind the scenes when you ask questions:
 | `search` | Full-text search across titles and summaries |
 | `get_new_since` | Everything added after a timestamp — perfect for "what did I miss?" |
 | `get_source_updates` | Latest items from one specific source |
+| `get_repo_quickstart` | Live GitHub lookup: stars, language, license, last push — plus the install/usage section pulled out of the repo's README |
+| `get_paper_brief` | Live ArXiv lookup: title, authors, abstract, categories, and links for any paper ID |
 | `check_status` | Cache health: when data was last updated, total items, per-source breakdown |
 
 ---
@@ -459,6 +467,27 @@ You need a `.env` file in the project root with your Supabase credentials. See t
 
 **"Some sources show 0 items"**
 This is normal. Some sources (like Google Research Blog) publish infrequently. Others (like Reddit) may occasionally return errors due to rate limiting. The pipeline is designed to continue even when individual sources fail.
+
+**"My client only lists 6 tools, not 8"**
+The tool list comes from the deployed Edge Function, not from this repo. After changing anything under `supabase/functions/`, redeploy with `npx supabase functions deploy mcp` — until then the live endpoint keeps serving the previous build. Verify with:
+```bash
+curl -s -X POST https://YOUR-PROJECT.supabase.co/functions/v1/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools | length'
+```
+
+**"get_repo_quickstart says the GitHub rate limit was reached"**
+Unauthenticated GitHub API calls are limited to 60/hour per IP, shared across everyone hitting the endpoint. Set a `GITHUB_TOKEN` secret on the Edge Function to raise it to 5,000/hour:
+```bash
+npx supabase secrets set GITHUB_TOKEN=ghp_...
+```
+The token needs no scopes — public repo metadata only.
+
+**"get_repo_quickstart returned the README intro instead of install steps"**
+It looks for a heading matching quickstart / getting started / installation / setup / usage. A repo that words its heading differently falls back to the top of the README, which is flagged as `quickstartFound: false` in the response.
+
+**"A tool call returned -32602"**
+That is a caller error, not a server fault — a missing or malformed argument (bad repo name, unparseable arXiv ID). Fix the argument; retrying unchanged will not help. Genuine server faults return `-32603`.
 
 ---
 

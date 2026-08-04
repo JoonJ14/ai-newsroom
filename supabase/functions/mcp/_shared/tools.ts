@@ -18,19 +18,19 @@ export const TOOLS: ToolDefinition[] = [
       properties: {
         officialLimit: {
           type: 'number',
-          description: 'Max official announcement items (default 15)',
+          description: 'Max official announcement items (default 10)',
         },
         communityLimit: {
           type: 'number',
-          description: 'Max community items (default 5)',
+          description: 'Max community items (default 8)',
         },
         researchLimit: {
           type: 'number',
-          description: 'Max research items (default 3)',
+          description: 'Max research items (default 6)',
         },
         industryLimit: {
           type: 'number',
-          description: 'Max industry items (default 2)',
+          description: 'Max industry items (default 4)',
         },
         showAll: {
           type: 'boolean',
@@ -119,6 +119,38 @@ export const TOOLS: ToolDefinition[] = [
         },
       },
       required: ['source'],
+    },
+  },
+  {
+    name: 'get_repo_quickstart',
+    description:
+      'Look up a GitHub repo and return its metadata (stars, language, license, last push) plus the install/usage section pulled out of its README. Use this when the user asks how to get started with, install, or try out a repo they saw in the news.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: {
+          type: 'string',
+          description:
+            'Repo as "owner/name" (e.g. "anthropics/claude-code"). A github.com URL also works.',
+        },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'get_paper_brief',
+    description:
+      'Fetch an ArXiv paper by ID and return its title, authors, abstract, categories, and links. Use this when the user asks what a paper is about after seeing it in the research section.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        arxiv_id: {
+          type: 'string',
+          description:
+            'ArXiv identifier (e.g. "2501.12345" or "2501.12345v2"). An arxiv.org abs/pdf URL also works.',
+        },
+      },
+      required: ['arxiv_id'],
     },
   },
   {
