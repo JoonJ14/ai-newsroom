@@ -15,6 +15,10 @@ import {
   handleGetSourceUpdates,
   handleCheckStatus,
 } from './_shared/handlers.ts';
+import {
+  handleGetRepoQuickstart,
+  handleGetPaperBrief,
+} from './_shared/external.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,6 +61,13 @@ Deno.serve(async (req) => {
     return jsonRpcError(null, -32700, 'Parse error: invalid JSON');
   }
 
+  // `null`, `[]` and `"text"` are all valid JSON, so req.json() resolves rather
+  // than throwing. Destructuring null would then raise an uncaught TypeError
+  // out of the request handler on a public endpoint.
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return jsonRpcError(null, -32600, 'Invalid Request: body must be a JSON-RPC object');
+  }
+
   const { id, method, params } = body;
 
   // ─── initialize ─────────────────────────────────────────────
@@ -85,36 +96,45 @@ Deno.serve(async (req) => {
       return jsonRpcError(id, -32602, 'Missing parameter: name');
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-
-    if (!supabaseUrl || !supabaseKey) {
-      return jsonRpcError(id, -32603, 'Server misconfigured: missing Supabase credentials');
-    }
-
-    const sb = createClient(supabaseUrl, supabaseKey);
+    // Built on demand: get_repo_quickstart and get_paper_brief resolve their
+    // answer from an external API and never touch the database, so missing
+    // Supabase credentials must not fail them.
+    const requireSupabase = () => {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Server misconfigured: missing Supabase credentials');
+      }
+      return createClient(supabaseUrl, supabaseKey);
+    };
 
     try {
       let result: unknown;
 
       switch (toolName) {
         case 'get_top_picks':
-          result = await handleGetTopPicks(sb, toolArgs);
+          result = await handleGetTopPicks(requireSupabase(), toolArgs);
           break;
         case 'get_trending':
-          result = await handleGetTrending(sb, toolArgs);
+          result = await handleGetTrending(requireSupabase(), toolArgs);
           break;
         case 'search':
-          result = await handleSearch(sb, toolArgs);
+          result = await handleSearch(requireSupabase(), toolArgs);
           break;
         case 'get_new_since':
-          result = await handleGetNewSince(sb, toolArgs);
+          result = await handleGetNewSince(requireSupabase(), toolArgs);
           break;
         case 'get_source_updates':
-          result = await handleGetSourceUpdates(sb, toolArgs);
+          result = await handleGetSourceUpdates(requireSupabase(), toolArgs);
+          break;
+        case 'get_repo_quickstart':
+          result = await handleGetRepoQuickstart(toolArgs);
+          break;
+        case 'get_paper_brief':
+          result = await handleGetPaperBrief(toolArgs);
           break;
         case 'check_status':
-          result = await handleCheckStatus(sb);
+          result = await handleCheckStatus(requireSupabase());
           break;
         default:
           return jsonRpcError(id, -32601, `Unknown tool: ${toolName}`);
@@ -125,7 +145,13 @@ Deno.serve(async (req) => {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return jsonRpcError(id, -32603, message);
+      // Caller-fault messages map to -32602 (invalid params). Returning -32603
+      // for these tells the client the server broke, so it retries a request
+      // that can never succeed.
+      const isCallerFault =
+        /^(Missing required parameter|Invalid repo|Invalid arxiv_id)\b/.test(message) ||
+        /^(Repo not found|No ArXiv paper found)\b/.test(message);
+      return jsonRpcError(id, isCallerFault ? -32602 : -32603, message);
     }
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "ai-newsroom",
   "version": "0.1.0",
-  "description": "Real-time AI news aggregator MCP server — 22+ sources, pre-cached, instant access from Claude Code or any MCP client.",
+  "description": "Real-time AI news aggregator MCP server — 35 sources, pre-cached, instant access from Claude Code or any MCP client.",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -10,7 +10,8 @@
     "digest": "tsx src/digest/generate.ts",
     "cleanup": "tsx src/utils/cleanup.ts",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:mcp": "tsx supabase/functions/mcp/external.test.ts"
   },
   "keywords": [
     "ai",

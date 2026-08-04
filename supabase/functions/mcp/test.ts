@@ -7,6 +7,12 @@
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
+// Imported from the real modules rather than copied: both are dependency-free,
+// so Node can load them directly, and a local copy silently goes stale — this
+// file previously reported 6 tools and 23 source names after the server had 8
+// and 35.
+import { TOOLS } from './_shared/tools.ts';
+import { sourceName } from './_shared/slots.ts';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY!;
@@ -36,20 +42,7 @@ interface NewsItem {
 const TIER1 = new Set(['claude_code_releases', 'openai_codex_releases']);
 const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
-const NAMES: Record<string, string> = {
-  anthropic_blog: 'Anthropic', anthropic_changelog: 'Anthropic Changelog',
-  openai_news: 'OpenAI', google_ai_blog: 'Google AI', nvidia_developer_blog: 'NVIDIA',
-  claude_code_releases: 'Claude Code', openai_codex_releases: 'OpenAI Codex',
-  hackernews_top: 'Hacker News', show_hn: 'Show HN', reddit_claudeai: 'r/ClaudeAI',
-  reddit_localllama: 'r/LocalLLaMA', reddit_machinelearning: 'r/MachineLearning',
-  reddit_artificial: 'r/artificial', hf_daily_papers: 'HF Papers',
-  hf_trending_spaces: 'HF Spaces', github_trending: 'GitHub Trending',
-  arxiv_cs_ai: 'ArXiv cs.AI', arxiv_cs_lg: 'ArXiv cs.LG', arxiv_cs_cv: 'ArXiv cs.CV',
-  devto_ai: 'Dev.to', infoq_ai: 'InfoQ', thenewstack_ai: 'The New Stack',
-  vllm_releases: 'vLLM',
-};
-
-function sn(s: string) { return NAMES[s] ?? s; }
+const sn = sourceName;
 function sc(i: NewsItem) { return (i.metadata?.relevanceScore as number) ?? i.score ?? 0; }
 
 function header(text: string) {
@@ -62,17 +55,17 @@ function header(text: string) {
 
 async function testToolsList() {
   header('TEST 1: tools/list');
-  const tools = [
-    { name: 'get_top_picks', params: 5 },
-    { name: 'get_trending', params: 3 },
-    { name: 'search', params: 2, required: ['query'] },
-    { name: 'get_new_since', params: 2, required: ['since'] },
-    { name: 'get_source_updates', params: 2, required: ['source'] },
-    { name: 'check_status', params: 0 },
-  ];
-  console.log(`${tools.length} tools available:`);
-  for (const t of tools) {
-    console.log(`  - ${t.name} (${t.params} params${t.required ? `, required: ${t.required.join(', ')}` : ''})`);
+  console.log(`${TOOLS.length} tools available:`);
+  for (const t of TOOLS) {
+    const schema = t.inputSchema as {
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    const params = Object.keys(schema.properties ?? {}).length;
+    const required = schema.required ?? [];
+    console.log(
+      `  - ${t.name} (${params} params${required.length ? `, required: ${required.join(', ')}` : ''})`,
+    );
   }
 }
 
@@ -245,7 +238,8 @@ async function testCheckStatus() {
 
   console.log(`Total items: ${count}`);
   console.log(`Last updated: ${latest?.fetched_at ?? 'never'}`);
-  console.log(`Retention: 7 days`);
+  // Mirrors handlers.ts handleCheckStatus — keep in step with retentionDays there.
+  console.log(`Retention: 90 days`);
   console.log(`\nPer-source breakdown:`);
   for (const [source, cnt] of Object.entries(breakdown).sort((a, b) => b[1] - a[1])) {
     console.log(`  ${sn(source)} (${source}): ${cnt} items`);
