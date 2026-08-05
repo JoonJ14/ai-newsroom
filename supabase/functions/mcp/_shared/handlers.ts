@@ -284,7 +284,7 @@ export async function handleSearch(
       // Keyed by (url, source) — the actual identity constraint. Keying on url
       // alone let a title hit from one source suppress a summary hit carrying
       // the same link from a different source.
-      const identity = (r: NewsItem) => `${r.url} ${r.source}`;
+      const identity = (r: NewsItem) => `${r.url}\u0000${r.source}`;
       const existing = new Set((data ?? []).map(identity));
       for (const r of data2) {
         if (!existing.has(identity(r))) {
