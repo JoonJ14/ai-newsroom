@@ -81,6 +81,13 @@ check('arXiv: prefix', normalizeArxivId('arXiv:2501.12345'), '2501.12345');
 check('abs URL', normalizeArxivId('https://arxiv.org/abs/1706.03762v5'), '1706.03762v5');
 check('pdf URL', normalizeArxivId('https://arxiv.org/pdf/1706.03762.pdf'), '1706.03762');
 check('legacy id', normalizeArxivId('cs/0701001'), 'cs/0701001');
+// Links copied from arXiv listing and search pages carry a query or fragment.
+// The schema advertises that arxiv.org URLs work, so these must not be rejected.
+check('abs URL with query string', normalizeArxivId('https://arxiv.org/abs/1706.03762?context=cs'), '1706.03762');
+check('abs URL with fragment', normalizeArxivId('https://arxiv.org/abs/1706.03762#comments'), '1706.03762');
+check('versioned abs URL with query', normalizeArxivId('https://arxiv.org/abs/1706.03762v5?utm_source=x'), '1706.03762v5');
+check('pdf URL with query', normalizeArxivId('https://arxiv.org/pdf/1706.03762.pdf?download=1'), '1706.03762');
+check('legacy id URL with query', normalizeArxivId('https://arxiv.org/abs/cs/0701001?x=1'), 'cs/0701001');
 rejects('free text', () => normalizeArxivId('hello world'));
 rejects('empty', () => normalizeArxivId(''));
 

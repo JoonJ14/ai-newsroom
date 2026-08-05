@@ -428,6 +428,7 @@ export async function handleGetRepoQuickstart(
   // here throws, and letting it escape would discard the metadata we already
   // successfully retrieved and fail the entire call.
   let readme = '';
+  let readmeTruncated = false;
   let readmeError: string | null = null;
   try {
     const readmeRes = await fetchWithTimeout(
@@ -435,7 +436,12 @@ export async function handleGetRepoQuickstart(
       { headers: githubHeaders('application/vnd.github.raw') },
     );
     if (readmeRes.ok) {
-      readme = (await readCapped(readmeRes, MAX_README_CHARS)).text;
+      const capped = await readCapped(readmeRes, MAX_README_CHARS);
+      readme = capped.text;
+      // Kept, not discarded: a section starting near the 200k cap can be cut
+      // short and still come in under the 4k section limit, so extractQuickstart
+      // adds no marker of its own and the commands would look complete.
+      readmeTruncated = capped.truncated;
     } else {
       discardBody(readmeRes);
       readmeError =
@@ -452,6 +458,19 @@ export async function handleGetRepoQuickstart(
   const quickstart = readme
     ? extractQuickstart(readme)
     : { section: '', heading: null, matched: false };
+
+  // extractQuickstart only marks its own 4k section cut. If the README itself
+  // was cut at MAX_README_CHARS, a section near that boundary is incomplete
+  // without either marker, so say so rather than presenting partial commands as
+  // the whole thing. Skipped when the section already carries the marker.
+  if (
+    readmeTruncated &&
+    quickstart.section &&
+    !quickstart.section.includes('…(truncated)')
+  ) {
+    quickstart.section +=
+      '\n\n…(the README exceeded the size this tool reads, so these instructions may be incomplete — see the repo for the full text)';
+  }
 
   const stars = meta.stargazers_count.toLocaleString('en-US');
   const text = [
@@ -494,6 +513,8 @@ export async function handleGetRepoQuickstart(
     quickstart: quickstart.section || null,
     quickstartHeading: quickstart.heading,
     quickstartFound: quickstart.matched,
+    /** True when the README exceeded the read cap, so the section may be partial. */
+    readmeTruncated,
   };
 }
 
@@ -503,6 +524,11 @@ export async function handleGetRepoQuickstart(
 export function normalizeArxivId(input: string): string {
   let id = input.trim();
   id = id.replace(/^https?:\/\/(www\.)?arxiv\.org\/(abs|pdf)\//i, '');
+  // Links copied from arXiv listing and search pages carry a query or fragment
+  // (`/abs/1706.03762?context=cs`). The schema advertises that arxiv.org URLs
+  // work, so these must be stripped rather than failing validation — the same
+  // treatment normalizeRepo gives github.com URLs.
+  id = id.replace(/[?#].*$/, '');
   id = id.replace(/\.pdf$/i, '');
   id = id.replace(/^arxiv:/i, '');
   id = id.replace(/^\/+|\/+$/g, '');
