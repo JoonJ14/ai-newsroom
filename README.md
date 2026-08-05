@@ -498,7 +498,20 @@ Issues and PRs welcome! If you want to add a new source:
 1. Add the source definition to `config/sources.yaml`
 2. If it uses a new collector type, implement it in `src/collectors/`
 3. Test with `npm run collect -- --source your_source_id`
-4. Submit a PR
+4. Add it to the source list in this README — CI checks that the list and the
+   counts in the headings match `config/sources.yaml`
+5. Submit a PR
+
+`main` is protected, so everything lands through a pull request. CI must be green
+before a PR can merge; no approvals are required. Locally:
+
+```bash
+npm run typecheck   # type-check src/
+npm run test:mcp    # MCP regression suite — no network or credentials needed
+```
+
+CI also rejects NUL bytes in TypeScript sources and fails if the docs and the
+code disagree about which tools and sources exist.
 
 ---
 

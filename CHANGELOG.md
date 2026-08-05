@@ -12,6 +12,16 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **CI (`.github/workflows/ci.yml`)** — the project had none. `tsconfig.json`
+  excludes `supabase/`, so the MCP server had no automated coverage whatsoever.
+  Runs on every pull request and every push to `main`: typecheck, the MCP
+  regression suite, a NUL-byte scan, and a docs-match-code check that asserts
+  every tool is declared, routed *and* documented, with the README's tool and
+  source counts matching config.
+- **Branch protection on `main`** via a GitHub *ruleset* (not classic branch
+  protection, so Settings → Branches stays empty by design). Requires a pull
+  request and a green `typecheck + tests` check; blocks deletion and
+  force-pushes. **No bypass actors** — the rule applies to everyone.
 - **`get_repo_quickstart` MCP tool** — looks up a GitHub repo and returns its
   metadata (stars, forks, language, license, last push, archived flag) plus the
   install/usage section extracted from its README. Accepts `owner/name` or a
@@ -110,6 +120,15 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The heartbeat now commits to a `heartbeat` branch instead of `main`**, so
+  `main` can be protected without an exception. Required-status-check rules
+  reject a freshly pushed commit — its checks have not run yet — and on a
+  user-owned repository the GitHub Actions app cannot be granted a ruleset
+  bypass at all (*"Actor GitHub Actions integration must be part of the ruleset
+  source or owner organization"*). GitHub's 60-day inactivity rule counts
+  repository activity rather than default-branch activity, so a side branch
+  keeps `collect.yml` and `digest.yml` enabled just as well. The workflow also
+  re-enables those workflows if it finds them disabled.
 - **`SOURCE_NAMES` now covers all 35 sources** (was 24). The 11 missing entries
   rendered to users as raw IDs — `techcrunch_ai` instead of "TechCrunch". This
   affects the six pre-existing tools as well.

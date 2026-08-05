@@ -162,6 +162,73 @@ Recorded because they are the honest part of the record:
 Both are the late-cycle signature the review process predicts: once the original code is
 clean, the remaining findings are defects in the fixes.
 
+## The GitHub Codex review loop
+
+After the local rounds, the change went through GitHub's Codex reviewer on PR #3
+(opened against a base branch pinned at the pre-merge commit, since the code was
+already on `main`; closed rather than merged afterwards).
+
+**4 rounds, 7 findings, zero false positives from Codex.**
+
+| Round | Finding | |
+|---|---|---|
+| 1 | README truncation flag discarded — partial install steps shown as complete | P2 |
+| 1 | arXiv URLs with `?query` rejected though the schema promises they work | P3 |
+| 2 | Schema warning trapped inside a code fence, so it never rendered | P3 |
+| 3 | Fence left open on the README-cap path | P3 |
+| 3 | Literal NUL byte in `handlers.ts` | P3 |
+| 4 | Truncation marker rendered inside the code block, copyable as a command | P2 |
+| 4 | Category parsing rescanned from each malformed fragment (~1.6s on 190k) | P3 |
+
+The findings were a different *class* from the local rounds: those probed
+internal correctness, while these were about the boundary where a real user's
+input meets the tool — a link someone pastes, output someone reads.
+
+**One false positive, and it was mine.** I dismissed the NUL-byte finding after
+"verifying" with three tools that all share the same blind spot: `grep -P` cannot
+match a NUL (it uses NUL-terminated strings internally), `sed` printed the byte
+invisibly, and a plain `rg` count did not reveal binary treatment. A byte-level
+read found it instantly. Confident agreement between tools that fail the same way
+is not evidence. Retracted on the PR and fixed.
+
+Round 4 also caught the same ordering bug twice: `…(truncated)` was appended
+before the fence was closed. Round 3 fixed one branch; the sibling branch kept
+the defect. Fixing one instance of a bug without checking its twin is its own
+failure mode.
+
+Operationally: a round can return *"Codex Review: Something went wrong"* and needs
+re-triggering, and every round after the first requires an explicit
+`@codex review` — pushes do not trigger it. Silence means nothing was triggered,
+not that nothing was found.
+
+## CI and branch protection
+
+Neither existed. `tsconfig.json` excludes `supabase/`, so **nothing ran the test
+suite automatically** — the 123 assertions added during this work would have run
+only when someone remembered to.
+
+`ci.yml` now runs on every PR and push to `main`: typecheck, the suite, a
+NUL-byte scan, and a docs-match-code check asserting every tool is declared,
+routed and documented with the README counts matching config. That last check
+exists because documentation drifting from code was this session's root cause.
+
+`main` is protected by a GitHub **ruleset** — requiring a PR and a green
+`typecheck + tests`, blocking deletion and force-pushes, with **no bypass
+actors**. Rulesets are the newer system; Settings → Branches (classic protection)
+stays empty by design.
+
+The obstacle was the heartbeat, which pushed straight to `main` to keep scheduled
+workflows alive — and if those get disabled, the collectors stop. Neither obvious
+fix works: required status checks reject a freshly pushed commit because its
+checks have not run, and on a user-owned repo the GitHub Actions app **cannot** be
+a bypass actor (*"must be part of the ruleset source or owner organization"* —
+org-only). Rather than weaken the rule, the heartbeat moved to its own branch:
+the 60-day rule counts repository activity, not default-branch activity. `main`
+needs no exception, so there is no hole in it.
+
+Verified both directions rather than assumed: a real push to `main` was rejected
+with `GH013`, and the heartbeat ran successfully afterwards.
+
 ## Operational notes
 
 - **The tool list comes from the deployed Edge Function, not the repo.** The live endpoint
