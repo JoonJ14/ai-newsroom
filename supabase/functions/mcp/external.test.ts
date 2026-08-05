@@ -17,6 +17,7 @@ import {
   sliceTag,
   readCapped,
   closeDanglingFence,
+  collectTermAttrs,
 } from './_shared/external.ts';
 
 let passed = 0;
@@ -329,6 +330,36 @@ section('extractQuickstart — README-cap truncation must still balance fences')
   const balanced = ((body.match(/```/g) ?? []).length) % 2 === 0;
   check('a mid-fence cut leaves the section unbalanced on its own', balanced, false);
   check('closeDanglingFence repairs it', ((closeDanglingFence(body).match(/```/g) ?? []).length) % 2, 0);
+}
+
+section('extractQuickstart — the truncation marker must sit outside the fence');
+{
+  // Closing the fence after appending the marker put "…(truncated)" inside the
+  // code block, where a reader copying a long shell snippet could take it for
+  // another command.
+  const long = '## Install\n```bash\n' + 'echo hello\n'.repeat(600) + '```\ndone\n';
+  const body = extractQuickstart(long, 200).section;
+  const markerAt = body.indexOf('…(truncated)');
+  const fencesBefore = (body.slice(0, markerAt).match(/```/g) ?? []).length;
+  check('fences balanced overall', (body.match(/```/g) ?? []).length % 2, 0);
+  check('marker is not inside a code block', fencesBefore % 2 !== 0, false);
+}
+
+section('collectTermAttrs — bounded per tag, not rescanned per fragment');
+check('reads each term', collectTermAttrs('<category term="cs.AI"/><category term="cs.LG"/>', 'category'), ['cs.AI', 'cs.LG']);
+check('prefix collision ignored', collectTermAttrs('<category_extra term="x"/><category term="cs.AI"/>', 'category'), ['cs.AI']);
+check('quoted > inside an attribute', collectTermAttrs('<category label="a>b" term="cs.AI"/>', 'category'), ['cs.AI']);
+check('namespaced tag', collectTermAttrs('<arxiv:primary_category term="cs.CL"/>', 'arxiv:primary_category'), ['cs.CL']);
+check('tag with no term is skipped', collectTermAttrs('<category /><category term="cs.AI"/>', 'category'), ['cs.AI']);
+{
+  // Malformed fragments without a term made the previous regex rescan the rest
+  // of the entry from each one — ~1.6s on a 190k body, on a request path.
+  const hostile = '<entry>' + '<category '.repeat(20000) + '<category term="cs.AI"/></entry>';
+  const t0 = Date.now();
+  const found = collectTermAttrs(hostile, 'category');
+  const elapsed = Date.now() - t0;
+  check(`20k malformed fragments stay fast (${elapsed}ms)`, elapsed < 250, true);
+  check('and the real term is still found', found, ['cs.AI']);
 }
 
 // ─── readCapped ──────────────────────────────────────────────────

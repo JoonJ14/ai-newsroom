@@ -1,0 +1,97 @@
+name: CI
+
+# Runs on pull requests and on pushes to main. Nothing previously ran the test
+# suite automatically — `tsconfig.json` excludes `supabase/`, so the MCP server
+# had no automated coverage at all until these checks existed.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref so a burst of pushes doesn't queue up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Pure-function suite: no network, no Supabase credentials required.
+      - name: MCP regression suite
+        run: npm run test:mcp
+
+      # A raw NUL makes tooling treat a source file as binary — ripgrep stops
+      # reporting line matches and diffs degrade. One reached main on
+      # 2026-08-05, so it is now checked rather than noticed by accident.
+      - name: Reject control characters in source
+        run: |
+          if grep -rlIP '\x00' --include='*.ts' src supabase 2>/dev/null | grep .; then
+            echo "::error::NUL byte found in a TypeScript source file (listed above)"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import pathlib, sys
+          bad = []
+          for p in list(pathlib.Path('src').rglob('*.ts')) + list(pathlib.Path('supabase').rglob('*.ts')):
+              if b'\x00' in p.read_bytes():
+                  bad.append(str(p))
+          if bad:
+              print('::error::NUL byte found in: ' + ', '.join(bad))
+              sys.exit(1)
+          print('no NUL bytes in tracked TypeScript sources')
+          PY
+
+      # The tool list, the docs and config/sources.yaml have drifted apart
+      # before — 8 tools documented against 6 implemented, and 35 sources
+      # described as "22+". Cheap to assert, expensive to discover later.
+      - name: Docs match code
+        run: |
+          npx tsx -e "
+          import { readFileSync } from 'fs';
+          import YAML from 'yaml';
+
+          const fail = (m) => { console.error('::error::' + m); process.exitCode = 1; };
+
+          const doc = YAML.parse(readFileSync('config/sources.yaml', 'utf8'));
+          const sources = doc.sources ?? Object.values(doc).find(Array.isArray);
+          const readme = readFileSync('README.md', 'utf8');
+          const tools = readFileSync('supabase/functions/mcp/_shared/tools.ts', 'utf8');
+          const index = readFileSync('supabase/functions/mcp/index.ts', 'utf8');
+
+          const declared = [...tools.matchAll(/name: '([a-z_]+)'/g)].map((m) => m[1]);
+          const routed = [...index.matchAll(/case '([a-z_]+)'/g)].map((m) => m[1]);
+
+          for (const t of declared) if (!routed.includes(t)) fail(\`tool '\${t}' is declared but never routed\`);
+          for (const r of routed) if (!declared.includes(r)) fail(\`route '\${r}' has no tool declaration\`);
+          for (const t of declared) if (!readme.includes('\\\`' + t + '\\\`')) fail(\`tool '\${t}' is missing from README\`);
+
+          if (!readme.includes(\`## MCP Tools (\${declared.length})\`)) {
+            fail(\`README heading does not say 'MCP Tools (\${declared.length})'\`);
+          }
+          if (!readme.includes(\`## Sources (\${sources.length})\`)) {
+            fail(\`README heading does not say 'Sources (\${sources.length})'\`);
+          }
+          for (const s of sources) if (!readme.includes(s.name)) fail(\`source '\${s.name}' is missing from README\`);
+
+          if (!process.exitCode) {
+            console.log(\`ok: \${declared.length} tools declared+routed+documented, \${sources.length} sources documented\`);
+          }
+          "

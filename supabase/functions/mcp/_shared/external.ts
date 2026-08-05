@@ -386,7 +386,10 @@ export function extractQuickstart(
 
   section = section.trim();
   if (section.length > maxChars) {
-    section = closeDanglingFence(`${truncateSafely(section, maxChars)}\n…(truncated)`);
+    // The fence is closed BEFORE the marker is appended. Closing afterwards put
+    // "…(truncated)" inside the unterminated block, where a reader copying a
+    // long shell snippet could take it for another command.
+    section = `${closeDanglingFence(truncateSafely(section, maxChars))}\n…(truncated)`;
   }
 
   return { section, heading, matched: true };
@@ -685,6 +688,38 @@ function isNameBoundary(c: string | undefined): boolean {
   return c === undefined || c === '>' || c === '/' || /\s/.test(c);
 }
 
+/**
+ * Read the `term="…"` attribute of every `<tag …>` in the body.
+ *
+ * Each tag is bounded with findTagEnd before its attributes are searched, so a
+ * tag without a `term` costs only its own length instead of a rescan to the end
+ * of the entry.
+ */
+export function collectTermAttrs(xml: string, tag: string): string[] {
+  const out: string[] = [];
+  const open = `<${tag}`;
+  let at = 0;
+
+  for (;;) {
+    const start = xml.indexOf(open, at);
+    if (start === -1) return out;
+
+    const nameEnd = start + tag.length + 1;
+    if (!isNameBoundary(xml[nameEnd])) {
+      at = start + 1;
+      continue;
+    }
+
+    const end = findTagEnd(xml, nameEnd);
+    if (end === -1) return out;
+
+    const term = /\bterm="([^"]*)"/.exec(xml.slice(nameEnd, end));
+    if (term) out.push(term[1]);
+
+    at = end + 1;
+  }
+}
+
 export function sliceTag(xml: string, tag: string, from = 0): { text: string; end: number } | null {
   // Iterative on purpose. Recursing past each prefix collision overflowed the
   // stack: `<summary_detail>` is 16 chars, so a 200k body admits ~12.5k
@@ -792,12 +827,13 @@ export async function handleGetPaperBrief(params: Record<string, unknown>) {
     at = found.end;
   }
 
-  // `term="…"` is bounded by a negated class on both sides, so it stays linear.
-  const categories = [...entry.matchAll(/<category\s[^>]*?term="([^"]*)"/g)].map(
-    (m) => m[1],
-  );
+  // Each tag is bounded FIRST, then its attribute is read from within those
+  // bounds. The previous `<category\s[^>]*?term="…"` form re-scanned the rest of
+  // the entry from every `<category ` fragment that lacked a term — ~1.6s on a
+  // 190k malformed body, on a request-serving path.
+  const categories = collectTermAttrs(entry, 'category');
   const primaryCategory =
-    /<arxiv:primary_category\s[^>]*?term="([^"]*)"/.exec(entry)?.[1] ??
+    collectTermAttrs(entry, 'arxiv:primary_category')[0] ??
     categories[0] ??
     null;
 
