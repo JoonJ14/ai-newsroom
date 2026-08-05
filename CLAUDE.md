@@ -39,8 +39,9 @@ Sources are defined in `config/sources.yaml`. Each source has:
 - **Source customization via config.** Users can enable/disable individual sources or source groups without touching code.
 
 ## Database Schema
-Single table `news_items`:
-```sql
+
+Single table `news_items`.
+
 **`supabase/migrations/001_create_news_items.sql` is the source of truth — read it before
 writing a query.** This block is a summary and has been wrong before.
 
