@@ -154,7 +154,57 @@ ai-newsroom/
 - `npm run collect` — Run all enabled collectors once (manual trigger)
 - `npm run collect -- --source anthropic_blog` — Run a single collector
 - `npm run digest` — Generate and send personal digest
+- `npm run typecheck` — Type-check `src/` (note: `tsconfig.json` EXCLUDES `supabase/`)
+- `npm run test:mcp` — MCP regression suite; no network or credentials needed
 - `supabase functions serve mcp` — Run Edge Function locally (this is the MCP server endpoint)
+
+## Branching and CI
+
+**`main` is protected — direct pushes are rejected.** Enforced by a GitHub
+*ruleset* (Settings → Rules → Rulesets), not classic branch protection, so the
+Settings → Branches page is empty by design. There are **no bypass actors**: the
+rule applies to everyone, including repository admins and GitHub Actions.
+
+Every change goes through a pull request:
+
+```bash
+git checkout -b my-change
+# edit, commit
+git push -u origin my-change
+gh pr create --fill
+gh pr merge --auto --squash    # 0 approvals required; CI must be green
+```
+
+`.github/workflows/ci.yml` runs on every PR and every push to `main`, and the
+`typecheck + tests` check is required to merge. It runs:
+
+1. `npm run typecheck`
+2. `npm run test:mcp`
+3. **NUL-byte scan** — a raw NUL makes tooling treat a source file as binary
+   (ripgrep stops reporting line matches). One reached `main` on 2026-08-05.
+4. **docs-match-code** — every tool declared, routed *and* in the README, with
+   the README's tool and source counts matching `tools.ts` and `sources.yaml`.
+   Documentation drifting from code has caused real bugs here; it now fails CI.
+
+### The heartbeat writes to its own branch, not `main`
+
+`heartbeat.yml` commits a weekly timestamp to the **`heartbeat`** branch. GitHub
+disables scheduled workflows after 60 days of repository inactivity, which would
+silently stop `collect.yml` and `digest.yml`; the commit prevents that. The rule
+counts *repository* activity, not default-branch activity, so a side branch
+works.
+
+It used to push to `main`, which is incompatible with protecting `main`:
+required status checks reject a freshly pushed commit (its checks have not run),
+and on a **user-owned** repo the GitHub Actions app cannot be granted a bypass at
+all — the API refuses with *"Actor GitHub Actions integration must be part of the
+ruleset source or owner organization."* Moving the heartbeat off `main` means the
+ruleset needs no exception, so there is no hole in it.
+
+The workflow also re-enables `collect.yml` / `digest.yml` / `heartbeat.yml` if it
+finds them disabled. Query workflow state through the API — `gh workflow view`
+has **no** `--json` flag, and the version of this step that used it silently did
+nothing while reporting success.
 
 ## Environment Variables
 ```
