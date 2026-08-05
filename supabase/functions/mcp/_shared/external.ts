@@ -249,7 +249,7 @@ function truncateSafely(text: string, maxChars: number): string {
  * hand the caller Markdown that renders as one runaway code block swallowing
  * everything after it.
  */
-function closeDanglingFence(text: string): string {
+export function closeDanglingFence(text: string): string {
   const lines = text.split('\n');
   let open: { char: string; length: number } | null = null;
 
@@ -468,7 +468,12 @@ export async function handleGetRepoQuickstart(
     quickstart.section &&
     !quickstart.section.includes('…(truncated)')
   ) {
-    quickstart.section +=
+    // The fence is closed BEFORE the notice is appended. extractQuickstart only
+    // balances fences on its own 4k truncation path, so a README cut mid-block
+    // by the 200k cap can yield a section under 4k with a fence still open —
+    // and the notice would then render inside that code block.
+    quickstart.section =
+      closeDanglingFence(quickstart.section) +
       '\n\n…(the README exceeded the size this tool reads, so these instructions may be incomplete — see the repo for the full text)';
   }
 

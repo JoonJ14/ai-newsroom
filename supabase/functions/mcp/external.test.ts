@@ -16,6 +16,7 @@ import {
   extractQuickstart,
   sliceTag,
   readCapped,
+  closeDanglingFence,
 } from './_shared/external.ts';
 
 let passed = 0;
@@ -314,6 +315,20 @@ check('unterminated comment returns null', sliceTag('<entry><!-- oops', 'entry')
   const second = first ? sliceTag(xml, 'author', first.end) : null;
   check('end offset advances past the first match', (first?.end ?? 0) > 0, true);
   check('second author found from that offset', sliceTag(second?.text ?? '', 'name')?.text, 'B');
+}
+
+section('extractQuickstart — README-cap truncation must still balance fences');
+{
+  // The 200k README cap can cut mid-fence while the extracted section stays
+  // under the 4k section cap, so extractQuickstart adds no marker of its own.
+  // The caller appends a notice in that case, and it must not land inside an
+  // unterminated code block. This asserts the section-level contract; the
+  // handler wires the same closeDanglingFence call onto that path.
+  const cut = '## Quick start\n\n```bash\nnpm install -g thing\nthing --start\nyyy';
+  const { section: body } = extractQuickstart(cut);
+  const balanced = ((body.match(/```/g) ?? []).length) % 2 === 0;
+  check('a mid-fence cut leaves the section unbalanced on its own', balanced, false);
+  check('closeDanglingFence repairs it', ((closeDanglingFence(body).match(/```/g) ?? []).length) % 2, 0);
 }
 
 // ─── readCapped ──────────────────────────────────────────────────
