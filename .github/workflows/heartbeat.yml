@@ -59,10 +59,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for wf in collect.yml digest.yml heartbeat.yml; do
-            state=$(gh workflow view "$wf" --json state --jq .state 2>/dev/null || echo unknown)
-            echo "$wf: $state"
-            if [ "$state" = "disabled_inactivity" ] || [ "$state" = "disabled_manually" ]; then
-              gh workflow enable "$wf" && echo "  re-enabled $wf"
-            fi
+          # Queried through the API: `gh workflow view` has no --json flag, so
+          # the obvious-looking form fails and every state reads as unknown,
+          # which makes the step silently do nothing while reporting success.
+          states=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows" \
+            --jq '.workflows[] | "\(.path) \(.state)"')
+          echo "$states"
+
+          echo "$states" | while read -r path state; do
+            case "$path" in
+              *collect.yml|*digest.yml|*heartbeat.yml)
+                case "$state" in
+                  disabled_inactivity|disabled_manually)
+                    gh workflow enable "$(basename "$path")" \
+                      && echo "re-enabled $path (was $state)"
+                    ;;
+                esac
+                ;;
+            esac
           done
