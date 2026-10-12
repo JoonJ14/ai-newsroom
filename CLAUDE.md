@@ -207,8 +207,13 @@ git checkout -b my-change
 # edit, commit
 git push -u origin my-change
 gh pr create --fill
-gh pr merge --auto --squash    # 0 approvals required; CI must be green
+gh pr merge --auto --merge     # 0 approvals required; CI must be green
 ```
+
+**Merge with a regular merge commit (`--merge`), never `--squash`.** Squashing
+collapses a PR's commits into one and loses the individual history, which the
+owner wants kept. The repo allows merge commits and the ruleset has no
+linear-history rule, so `--merge` works.
 
 `.github/workflows/ci.yml` runs on every PR and every push to `main`, and the
 `typecheck + tests` check is required to merge. It runs:
