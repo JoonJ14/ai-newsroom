@@ -31,7 +31,7 @@
 --
 -- SECRETS
 --   Read at call time from Supabase Vault. Create them in the dashboard
---   (Project Settings -> Vault) BEFORE running this file. Never put them here.
+--   (Integrations -> Vault) BEFORE running this file. Never put them here.
 --     github_dispatch_token  fine-grained PAT, this repo only, Actions: read/write
 --     discord_webhook_url    the same webhook the digest posts to
 --
