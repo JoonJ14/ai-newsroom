@@ -12,6 +12,18 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Supabase Cron scheduling (`supabase/migrations/003_schedule_triggers.sql`).**
+  GitHub's `schedule:` trigger was delivering the 11:45 AM ET digest at
+  2:30–6:00 PM ET. `pg_cron` now fires hourly and gates on the America/New_York
+  hour (DST-proof), and `pg_net` calls GitHub's `workflow_dispatch` API. Collect
+  runs at 2:30/8:30/14:30/20:30 ET, the digest at **9:00 AM ET**, and a 9:30
+  alarm posts to Discord if `digest_state.last_digest_at` wasn't refreshed. All
+  functions live in a `private` schema, revoked from `anon`/`authenticated`, so
+  PostgREST can't expose them. Secrets come from Vault at call time. **Manual
+  steps required:** create the GitHub token and Vault secrets, then run the
+  migration by hand. See `docs/scheduling.md`.
+- **`docs/scheduling.md`**: why the change, how it works, setup, verification,
+  changing the digest time, token renewal, and rollback.
 - **CI (`.github/workflows/ci.yml`)** — the project had none. `tsconfig.json`
   excludes `supabase/`, so the MCP server had no automated coverage whatsoever.
   Runs on every pull request and every push to `main`: typecheck, the MCP
@@ -120,6 +132,11 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`collect.yml` / `digest.yml`**: the `schedule:` blocks are commented out
+  (not deleted; forks can uncomment them to fall back to GitHub's scheduler).
+  Runs now arrive via `workflow_dispatch`. Both workflows are pinned to
+  `permissions: contents: read`. `heartbeat.yml` is unchanged; it may now be
+  redundant, but that hasn't been confirmed.
 - **The heartbeat now commits to a `heartbeat` branch instead of `main`**, so
   `main` can be protected without an exception. Required-status-check rules
   reject a freshly pushed commit — its checks have not run yet — and on a
@@ -139,6 +156,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- README: new "Status & roadmap" section (scheduling change, deferred
+  full-Supabase move and its costs, ranking rebuild next). The digest time now
+  reads 9:00 AM ET. The fork instructions explain that a fork needs either the
+  Supabase trigger or an uncommented `schedule:` block. Removed the stale
+  `npm run dev:mcp` line from the SQLite self-host block (the script no longer
+  exists).
+- CLAUDE.md: replaced the "GitHub Actions for collectors, not Supabase cron"
+  decision with "Supabase Cron schedules, GitHub Actions executes". Added
+  "Current Direction". Fixed the stale trigger, digest and CI/CD descriptions.
+  Regenerated the file tree from `git ls-files`: it listed a nonexistent
+  `src/utils/sqlite.ts` and omitted three workflows.
 - Source count corrected from "22+" to **35** in README, `CLAUDE.md`, and
   `package.json`. The README's source list was missing 11 sources and had two in the
   wrong category; sections now carry the `category` value used by `get_trending`.
