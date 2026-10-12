@@ -26,8 +26,11 @@
 --   what guarantees that. Do not give the alarm its own hard-coded hour.
 --
 --   DST edge: on the spring-forward day the 2:00 AM local hour does not exist,
---   so the 2:30 collect is skipped once a year. On fall-back the 1:00 hour
---   repeats; nothing is scheduled then. The digest hour is never affected.
+--   and on fall-back the 1:00 AM hour happens twice. A digest at 1 would go
+--   out twice that night and a digest at 2 would be skipped, so
+--   digest_hour_ny() refuses both (it raises, and the migration checks it on
+--   every run). The 2:30 collect is still skipped once a year on spring-forward,
+--   which is harmless.
 --
 -- SECRETS
 --   Read at call time from Supabase Vault. Create them in the dashboard
@@ -68,12 +71,25 @@ revoke all on schema private from public, anon, authenticated;
 -- ---------------------------------------------------------------------------
 
 -- The digest's New York local hour (0-23). Collect and alarm derive from it.
+-- Not 1 or 2: those hours repeat or vanish on DST changes (see header).
 create or replace function private.digest_hour_ny()
 returns integer
-language sql
+language plpgsql
 stable
 set search_path = ''
-as $$ select 9 $$;
+as $$
+declare
+  h constant integer := 9;   -- <- change this number to move the schedule
+begin
+  if h not between 0 and 23 or h in (1, 2) then
+    raise exception 'digest_hour_ny: % is not allowed (use 0 or 3-23; 1 and 2 break on DST changes)', h;
+  end if;
+  return h;
+end;
+$$;
+
+-- Fail the migration now rather than at the first cron run if the hour is bad.
+do $$ begin perform private.digest_hour_ny(); end $$;
 
 -- True when the current New York local hour is one of target_hours.
 create or replace function private.ny_hour_in(variadic target_hours integer[])
@@ -229,10 +245,12 @@ select cron.schedule(
 );
 
 -- Hourly jobs write ~72 rows/day to cron.job_run_details, which pg_cron never
--- prunes on its own. Weekly, Sundays 03:15 UTC.
+-- prunes on its own. Weekly, Sundays 03:15 UTC. Only the newsroom-* jobs'
+-- history is touched; other cron jobs in the project keep theirs.
 select cron.schedule(
   'newsroom-cron-log-cleanup',
   '15 3 * * 0',
   $$ delete from cron.job_run_details
-     where coalesce(end_time, start_time) < now() - interval '14 days' $$
+     where jobid in (select jobid from cron.job where jobname like 'newsroom-%')
+       and coalesce(end_time, start_time) < now() - interval '14 days' $$
 );

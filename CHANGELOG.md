@@ -22,6 +22,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PostgREST can't expose them. Secrets come from Vault at call time. **Manual
   steps required:** create the GitHub token and Vault secrets, then run the
   migration by hand. See `docs/scheduling.md`.
+  After Codex review: `digest_hour_ny()` refuses hours 1 and 2 (doubled or
+  skipped digests on DST nights), and the weekly log cleanup deletes only the
+  `newsroom-*` jobs' history, not other cron jobs'.
 - **`docs/scheduling.md`**: why the change, how it works, setup, verification,
   changing the digest time, token renewal, and rollback.
 - **CI (`.github/workflows/ci.yml`)** — the project had none. `tsconfig.json`

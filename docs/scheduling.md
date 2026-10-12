@@ -57,7 +57,7 @@ when that hour is its target, so daylight-saving changes need no edits.
 | `newsroom-collect` | `30 * * * *` | 2:30, 8:30, 14:30, 20:30 | dispatch `collect.yml` |
 | `newsroom-digest` | `0 * * * *` | 9:00 | dispatch `digest.yml` |
 | `newsroom-digest-check` | `30 * * * *` | 9:30 | missed-digest alarm |
-| `newsroom-cron-log-cleanup` | `15 3 * * 0` (weekly) | any | prune `cron.job_run_details` older than 14 days |
+| `newsroom-cron-log-cleanup` | `15 3 * * 0` (weekly) | any | prune the `newsroom-*` jobs' rows in `cron.job_run_details` older than 14 days (other cron jobs' history is left alone) |
 
 The 8:30 collect is there so the 9:00 digest always sees overnight news.
 
@@ -74,6 +74,7 @@ key could trigger workflow runs.
 **DST edge cases.** On the spring-forward night the 2:00 AM hour doesn't exist,
 so the 2:30 collect is skipped once a year. On the fall-back night 1:00 AM
 repeats, and nothing is scheduled then. The 9:00 digest is never affected.
+That's also why the digest hour can't be set to 1 or 2 (see below).
 
 ## Setup, in order
 
@@ -156,8 +157,13 @@ failure.
 
 ## Changing the digest time
 
-Change **one number**: the `select 9` in `private.digest_hour_ny()` in migration
-003 (a New York local hour, 0–23). Then re-run the migration, or just that
+Change **one number**: the `h constant integer := 9` line in
+`private.digest_hour_ny()` in migration 003 (a New York local hour).
+
+**Allowed: 0 or 3–23. Not 1 or 2.** On the fall-back night 1:00 AM happens
+twice, so a 1:00 digest would go out twice. On the spring-forward night 2:00 AM
+doesn't exist, so a 2:00 digest would be skipped. The function raises an error
+for either value, and the migration checks it when you run it. Then re-run the migration, or just that
 `create or replace function` statement.
 
 The other times derive from it, so they move together:
