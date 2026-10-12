@@ -6,19 +6,20 @@ AI Newsroom is an open-source, real-time AI/tech news aggregator exposed as an M
 ## Architecture Overview
 
 ### Four Layers
-1. **Collectors** (`src/collectors/`) — TypeScript modules that fetch and normalize data from each source type (RSS, JSON API, GitHub API, HTML scrape). Each collector outputs a common schema: `{ title, url, source, sourceCategory, score, summary, timestamp }`. Triggered by GitHub Actions on a 6-hour cron schedule.
+1. **Collectors** (`src/collectors/`) — TypeScript modules that fetch and normalize data from each source type (RSS, JSON API, GitHub API, HTML scrape). Each collector outputs a common schema: `{ title, url, source, sourceCategory, score, summary, timestamp }`. Run by `collect.yml` on GitHub Actions four times a day (2:30, 8:30, 14:30, 20:30 New York time). The run is started by Supabase Cron via `workflow_dispatch`, not by GitHub's `schedule:` trigger. See `docs/scheduling.md`.
 
 2. **Storage** (Supabase) — PostgreSQL database via Supabase free tier. Single `news_items` table with auto-cleanup of items older than 90 days. Edge Functions serve the MCP endpoint.
 
 3. **MCP Server** (`supabase/functions/mcp/`) — Supabase Edge Function implementing the MCP protocol. Exposes tools: `get_trending`, `get_top_picks`, `search`, `get_new_since`, `get_source_updates`, `get_repo_quickstart`, `get_paper_brief`, `check_status`.
 
-4. **Digest Delivery** (`src/digest/`) — Optional personal layer. Pulls latest items, filters by user-configured priority topics via Claude API, formats a briefing, and sends to Discord/Telegram/Slack/iMessage webhook. Runs on user's local machine via cron.
+4. **Digest Delivery** (`src/digest/`) — Optional personal layer. Pulls latest items, filters by user-configured priority topics via Claude API, formats a briefing, and sends to Discord/Telegram/Slack/iMessage webhook. The hosted digest is run by `digest.yml` on GitHub Actions daily at 9:00 AM New York time, again dispatched by Supabase Cron, with a 9:30 missed-digest alarm. Self-hosters can still run it locally with `scripts/setup-cron.sh`.
 
 ### Tech Stack
 - **Language:** TypeScript throughout
 - **Runtime:** Node.js for collectors, Deno for Supabase Edge Functions
 - **Database:** Supabase PostgreSQL (hosted) or SQLite (self-hosted option)
-- **CI/CD:** GitHub Actions for scheduled collection
+- **CI/CD:** GitHub Actions: `ci.yml` (PR checks), `collect.yml` and `digest.yml` (dispatched on schedule by Supabase Cron), `heartbeat.yml` (weekly keep-alive)
+- **Scheduling:** Supabase Cron (`pg_cron` + `pg_net`) calls GitHub's `workflow_dispatch` API (`supabase/migrations/003_schedule_triggers.sql`)
 - **MCP Protocol:** HTTP transport via Supabase Edge Function
 
 ## Source Configuration
@@ -31,10 +32,19 @@ Sources are defined in `config/sources.yaml`. Each source has:
 - `enabled`: boolean
 - `refreshIntervalHours`: override per-source if needed
 
+## Current Direction
+
+- **Scheduling is a deliberately tactical hybrid** (Supabase Cron → GitHub Actions; see the design decision below).
+  A full move of collectors and digest into Supabase Edge Functions is **deferred, not rejected**. Revisit it if
+  the two-platform setup causes trouble. Known costs of that move: Edge Function CPU and wall-clock limits, some
+  sources may block cloud-provider IPs, and deploys would stop happening automatically on merge to `main`.
+- **Next up: a rebuild of ranking and editorial direction**, as its own PR, separate from scheduling.
+- The README's "Status & roadmap" section says the same thing. Keep the two in sync.
+
 ## Key Design Decisions
 - **Pre-cached data, not on-demand scraping.** MCP calls read from DB — instant response, no waiting for scrapes.
 - **Refresh interval (6h) is independent of data retention (90 days).** Refresh = how often new data arrives. Retention = how far back users can look.
-- **GitHub Actions for collectors, not Supabase cron.** More transparent, forkable, and decoupled from storage layer.
+- **Supabase Cron schedules, GitHub Actions executes (Oct 2026).** Originally GitHub's `schedule:` trigger did both. On free public repos that scheduler creates runs late or drops them: the 11:45 AM ET digest was landing at 2:30–6:00 PM ET, and getting worse. API-dispatched runs skip the scheduler and start within seconds. So `pg_cron` fires hourly, gates on the America/New_York hour (DST-proof), and `pg_net` POSTs to GitHub's `workflow_dispatch` endpoint. Execution, logs and merge-to-main-is-deploy stay on GitHub Actions. The `schedule:` blocks are commented out, not deleted, so forks can fall back. Setup, token renewal and rollback are in `docs/scheduling.md`. The one number that sets all times is `private.digest_hour_ny()` in migration 003; the 9:30 alarm and the collect times derive from it.
 - **TypeScript everywhere.** MCP ecosystem is TS-native; Supabase Edge Functions run Deno (TS); keeps one language across the project.
 - **Source customization via config.** Users can enable/disable individual sources or source groups without touching code.
 
@@ -102,12 +112,24 @@ just what a collector happened to pick up.
 GitHub rate limit from 60/hr to 5,000/hr.
 
 ## File Structure
+Generated from `git ls-files` (2026-10-12). Regenerate it from there rather than editing by hand.
 ```
 ai-newsroom/
-├── .github/workflows/
-│   └── collect.yml          # GitHub Actions: runs collectors every 6h
+├── .github/
+│   ├── heartbeat.txt        # Generated by heartbeat.yml; nothing reads it
+│   └── workflows/
+│       ├── ci.yml           # PR + push-to-main checks (required to merge)
+│       ├── collect.yml      # Runs collectors + 90-day cleanup; dispatched by Supabase Cron
+│       ├── digest.yml       # Sends the daily digest; dispatched by Supabase Cron
+│       └── heartbeat.yml    # Weekly commit to the `heartbeat` branch; re-enables workflows
 ├── config/
 │   └── sources.yaml         # Source definitions (enable/disable, URLs, types)
+├── docs/
+│   ├── scheduling.md        # Supabase Cron → workflow_dispatch: why, setup, renewal, rollback
+│   └── sessions/            # Engineering session write-ups
+├── reviews/                 # Saved code-review reports
+├── scripts/
+│   └── setup-cron.sh        # Local crontab for the digest (self-host option)
 ├── src/
 │   ├── collectors/
 │   │   ├── index.ts         # Orchestrator: loads sources.yaml, runs enabled collectors
@@ -119,35 +141,48 @@ ai-newsroom/
 │   │   ├── scraper.ts       # Generic HTML scraper (fallback)
 │   │   └── types.ts         # Shared types: NewsItem, Source, etc.
 │   ├── digest/
-│   │   ├── generate.ts      # Pull data, filter by relevance, format briefing
-│   │   ├── adapters/
-│   │   │   ├── discord.ts   # Discord webhook adapter
-│   │   │   ├── telegram.ts  # Telegram bot adapter
-│   │   │   ├── slack.ts     # Slack incoming webhook adapter
-│   │   │   └── imessage.ts  # iMessage adapter (macOS only)
-│   │   └── config.ts        # Personal digest configuration
+│   │   ├── generate.ts      # Pull data, filter, send; records digest_state.last_digest_at
+│   │   ├── format.ts        # Renders the slotted display for messaging apps
+│   │   ├── config.ts        # Digest config loader (digest section of sources.yaml)
+│   │   └── adapters/
+│   │       ├── discord.ts   # Discord webhook adapter
+│   │       ├── telegram.ts  # Telegram bot adapter
+│   │       ├── slack.ts     # Slack incoming webhook adapter
+│   │       └── imessage.ts  # iMessage adapter (macOS only)
 │   └── utils/
-│       ├── supabase.ts      # Supabase client setup
-│       ├── sqlite.ts        # SQLite client (self-hosted option)
+│       ├── supabase.ts      # Supabase client: upsert + cleanup
+│       ├── cleanup.ts       # `npm run cleanup`: delete items older than 90 days
+│       ├── scoring.ts       # Relevance score 0-100 (recency / community / tier)
+│       ├── slots.ts         # Slotted display layout (get_top_picks, digest)
+│       ├── dedup.ts         # URL + title-similarity deduplication
+│       ├── date-filter.ts   # Skip items older than 7 days
+│       ├── relevance-filter.ts # AI keyword filter
+│       ├── test-slots.ts    # Manual script: print slotted display from live data
 │       └── logger.ts        # Logging utility
 ├── supabase/
 │   ├── functions/
 │   │   └── mcp/
 │   │       ├── index.ts     # Edge Function: JSON-RPC entry point + tool routing
-│   │       ├── test.ts      # Local test harness (runs under Node, not Deno)
+│   │       ├── test.ts      # Manual harness against real Supabase data (Node, not Deno)
+│   │       ├── external.test.ts # `npm run test:mcp` regression suite (no network)
 │   │       └── _shared/
 │   │           ├── tools.ts     # Tool definitions: names, descriptions, input schemas
 │   │           ├── handlers.ts  # Handlers backed by the news_items cache
 │   │           ├── external.ts  # Handlers backed by live GitHub / ArXiv lookups
 │   │           └── slots.ts     # Category slotting + display formatting
 │   └── migrations/
-│       └── 001_create_news_items.sql
+│       ├── 001_create_news_items.sql
+│       ├── 002_create_digest_state.sql
+│       └── 003_schedule_triggers.sql # pg_cron + pg_net → GitHub dispatch (run by hand)
+├── .env.example
+├── .gitignore
+├── CHANGELOG.md
 ├── CLAUDE.md                # This file
+├── LICENSE
 ├── README.md
 ├── package.json
-├── tsconfig.json
-├── .gitignore
-└── LICENSE
+├── package-lock.json
+└── tsconfig.json
 ```
 
 ## Commands
@@ -205,6 +240,12 @@ The workflow also re-enables `collect.yml` / `digest.yml` / `heartbeat.yml` if i
 finds them disabled. Query workflow state through the API — `gh workflow view`
 has **no** `--json` flag, and the version of this step that used it silently did
 nothing while reporting success.
+
+**Possibly redundant since Oct 2026, kept on purpose.** `collect.yml` and
+`digest.yml` no longer have an active `schedule:` trigger (Supabase Cron
+dispatches them). The 60-day rule is believed to target scheduled workflows
+only, so the heartbeat may no longer be needed. That hasn't been confirmed, so
+don't remove it until it is.
 
 ## Environment Variables
 ```

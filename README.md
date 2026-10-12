@@ -6,9 +6,20 @@
 
 Ask Claude *"what's new in AI today?"* and get a real answer, not stale training data.
 
-> **Don't want to set anything up? I built this for you and for all of us. Just join our Discord and get daily AI news delivered automatically at noon Eastern.**
+> **Don't want to set anything up? I built this for you and for all of us. Just join our Discord and get daily AI news delivered automatically at 9:00 AM Eastern.**
 > 
 > **[Join the AI Newsroom Discord](https://discord.gg/xUCRZq9c)**
+
+---
+
+## Status & roadmap
+
+- **Recent change (Oct 2026):** scheduling moved to **Supabase Cron**. GitHub's own scheduler was delivering the daily digest 3–6 hours late. Supabase now starts the GitHub Actions runs at fixed times, and the digest targets **9:00 AM ET** year-round. The runs themselves still happen on GitHub Actions. Details: [`docs/scheduling.md`](docs/scheduling.md).
+- **Under consideration:** moving collectors and digest entirely into Supabase Edge Functions. We're running the hybrid setup first and will revisit if having two platforms causes trouble. That move has real costs:
+  - Edge Functions have CPU-time and wall-clock limits that a 35-source scrape would have to fit within.
+  - Some sources may block requests from cloud-provider IPs.
+  - Deploys would no longer happen automatically when a PR merges to `main`.
+- **In progress next:** a rebuild of ranking and editorial direction.
 
 ---
 
@@ -154,7 +165,7 @@ Instead of asking Claude for news, you can have a formatted daily briefing autom
 
 Just join and the daily digest lands in your feed automatically. No accounts, no webhooks, no config files.
 
-**[Join the AI Newsroom Discord](https://discord.gg/xUCRZq9c)** — daily AI news at noon Eastern.
+**[Join the AI Newsroom Discord](https://discord.gg/xUCRZq9c)** — daily AI news at 9:00 AM Eastern.
 
 #### Path 2: Run your own Discord digest
 
@@ -191,7 +202,9 @@ If you already have a Discord server you want to use, skip to step 5.
    | `SUPABASE_SERVICE_KEY` | Only needed if self-hosting your own Supabase. If using the hosted endpoint above, skip this secret. |
    | `DISCORD_WEBHOOK_URL` | The webhook URL you copied in Step 1 |
 
-5. The digest will now run **automatically every day at noon Eastern time**
+5. Turn on a schedule. The workflows in this repo have no active `schedule:` trigger: the upstream project starts them from Supabase Cron instead (see [`docs/scheduling.md`](docs/scheduling.md)). A fork needs **one** of these:
+   - **Simple:** in your fork, edit `.github/workflows/digest.yml` (and `collect.yml` if you run your own collectors) and uncomment the `schedule:` block. GitHub's scheduler often runs these jobs hours late, but it needs no extra setup. The commented-out cron times are in UTC; adjust them to suit you.
+   - **On time:** set up the Supabase Cron trigger from `docs/scheduling.md` against your own Supabase project, replacing `JoonJ14/ai-newsroom` in the migration with your fork's `owner/name`.
 6. To send one right now: go to the **Actions** tab, click **Daily AI News Digest**, click **Run workflow**
 
 **Method B: Run on your own computer**
@@ -400,9 +413,6 @@ echo "NEWSROOM_DB_PATH=./data/newsroom.db" >> .env
 
 # Collect news
 npm run collect
-
-# Run MCP server locally
-npm run dev:mcp
 ```
 
 ---
@@ -448,6 +458,8 @@ GitHub automatically disables scheduled workflows after 60 days of repository in
 `heartbeat.yml` exists solely to prevent a repeat. It runs weekly, writes the current UTC timestamp to `.github/heartbeat.txt`, and commits it. That file is generated and has no functional purpose — nothing reads it, and it can be deleted and regenerated freely. The workflow is deliberately standalone rather than a step inside `collect.yml`: if it were attached to the collectors, a broken scraper would take down the heartbeat at precisely the moment it is needed most.
 
 **Known risk worth recording:** it is not fully confirmed that commits authored by `github-actions[bot]` using the built-in `GITHUB_TOKEN` satisfy GitHub's definition of "repository activity." If the scheduled workflows are ever auto-disabled again despite the heartbeat running on schedule, the fix is to swap `GITHUB_TOKEN` for a fine-grained personal access token with `contents: write`, stored as a repo secret and passed to the checkout step. GitHub emails the repository owner before disabling a workflow, so that warning email is the tripwire — do not ignore it.
+
+**Since October 2026:** `collect.yml` and `digest.yml` no longer have an active `schedule:` trigger. Supabase Cron dispatches them instead (see [`docs/scheduling.md`](docs/scheduling.md)). The 60-day rule is believed to apply only to workflows with a `schedule:` trigger, so the heartbeat may now be unnecessary. That hasn't been confirmed, so it stays in place for now.
 
 ---
 

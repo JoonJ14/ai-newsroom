@@ -1,10 +1,20 @@
 name: Daily AI News Digest
 
 on:
-  schedule:
-    # Runs daily at 11:45 AM Eastern (15:45 UTC during EDT)
-    - cron: '45 15 * * *'
-  workflow_dispatch: # Allow manual trigger from GitHub UI
+  # Scheduling now comes from Supabase Cron, which starts this workflow through
+  # the REST API (workflow_dispatch) at fixed New York times. GitHub's own
+  # scheduler was creating runs hours late. See docs/scheduling.md.
+  #
+  # Forks without the Supabase trigger: uncomment the schedule block below to
+  # fall back to GitHub's scheduler (expect delays of up to several hours).
+  # schedule:
+  #   # Runs daily at 11:45 AM Eastern (15:45 UTC during EDT)
+  #   - cron: '45 15 * * *'
+  workflow_dispatch: # Supabase Cron, or manual trigger from the GitHub UI
+
+# Neither job writes to the repo.
+permissions:
+  contents: read
 
 jobs:
   digest:
