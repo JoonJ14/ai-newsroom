@@ -25,6 +25,9 @@ sources:
     name: Anthropic News
     type: html_scrape
     url: https://www.anthropic.com/news
+    # Same layout as /news. Model launches are linked from both pages at
+    # top-level paths (/claude-haiku-5-5), which the scraper now follows.
+    extraUrls: [https://www.anthropic.com/research]
     category: company_blog
     sourceTier: 1
     digestMaxItems: 2
@@ -37,13 +40,15 @@ sources:
   - id: anthropic_changelog
     name: Anthropic Developer Changelog
     type: html_scrape
-    url: https://docs.anthropic.com/en/release-notes/overview
+    # docs.anthropic.com/en/release-notes/overview now redirects here. One item
+    # per bullet: a single day can hold a model launch and several SDK fixes.
+    url: https://platform.claude.com/docs/en/release-notes/overview
     category: company_blog
     sourceTier: 1
     digestMaxItems: 1
     scoreFloor: 80
     enabled: true
-    maxItems: 15
+    maxItems: 20
     tags: [anthropic, claude, api]
     skipRelevanceFilter: true
 
@@ -98,7 +103,7 @@ sources:
   - id: deepmind_blog
     name: Google DeepMind Blog
     type: rss
-    url: https://deepmind.google/discover/blog/rss.xml
+    url: https://deepmind.google/blog/rss.xml # /discover/blog/rss.xml returns 404 since the blog moved
     category: company_blog
     sourceTier: 1
     digestMaxItems: 1
@@ -130,7 +135,10 @@ sources:
     category: industry_news
     sourceTier: 2
     digestMaxItems: 1
-    enabled: true
+    # Disabled Oct 2026. Every feed URL answers 429 with a Vercel bot challenge
+    # (x-vercel-mitigated: challenge), whatever the User-Agent, and has since
+    # late August. The FeedBurner mirror stopped updating on 2026-09-03.
+    enabled: false
     tags: [news, enterprise, industry]
     skipRelevanceFilter: false
 
@@ -148,18 +156,64 @@ sources:
   - id: mit_tech_review_ai
     name: MIT Technology Review
     type: rss
-    url: https://www.technologyreview.com/feed/
+    # The AI topic feed. The whole-site feed lost about half its items to the
+    # keyword filter, and this one is AI-only, so the filter is skipped.
+    url: https://www.technologyreview.com/topic/artificial-intelligence/feed
     category: industry_news
     sourceTier: 2
     digestMaxItems: 1
     enabled: true
     tags: [research, longform, industry]
+    skipRelevanceFilter: true
+
+  - id: ars_technica_ai
+    name: Ars Technica AI
+    type: rss
+    # Ars's AI section; it also carries science and gaming pieces that only
+    # touch on AI, so the keyword filter stays on.
+    url: https://arstechnica.com/ai/feed/
+    category: industry_news
+    sourceTier: 2
+    digestMaxItems: 1
+    maxItems: 20
+    enabled: true
+    tags: [news, policy, industry]
+    skipRelevanceFilter: false
+
+  - id: guardian_ai
+    name: The Guardian AI
+    type: rss
+    # Busiest of the press feeds (about 15 a day), with policy and regulation
+    # coverage. Includes letters and comment pieces, hence the keyword filter.
+    url: https://www.theguardian.com/technology/artificialintelligenceai/rss
+    category: industry_news
+    sourceTier: 2
+    digestMaxItems: 1
+    maxItems: 20
+    enabled: true
+    tags: [news, policy, industry]
+    skipRelevanceFilter: false
+
+  - id: wired_ai
+    name: WIRED AI
+    type: rss
+    url: https://www.wired.com/feed/tag/ai/latest/rss
+    category: industry_news
+    sourceTier: 2
+    digestMaxItems: 1
+    maxItems: 10
+    enabled: true
+    tags: [news, policy, industry]
     skipRelevanceFilter: false
 
   - id: meta_ai_blog
-    name: Meta AI Blog
-    type: html_scrape
-    url: https://ai.meta.com/blog/
+    name: Meta Newsroom (AI)
+    type: rss
+    # Meta's newsroom, AI tag. ai.meta.com/blog/ server-renders only posts up to
+    # late July (newer ones load in the browser) and has no feed, so its scraper
+    # kept finding the same five undated posts. This feed carried Muse Wonder.
+    # Already AI-only, and the launch post has no keyword the filter knows.
+    url: https://about.fb.com/news/tag/ai/feed/
     category: company_blog
     sourceTier: 2
     digestMaxItems: 1
@@ -214,7 +268,7 @@ sources:
   - id: google_research
     name: Google Research Blog
     type: rss
-    url: https://blog.research.google/feeds/posts/default?alt=rss
+    url: https://research.google/blog/rss/ # the old Blogger feed stopped in 2024
     category: research
     sourceTier: 2
     digestMaxItems: 1
@@ -268,7 +322,11 @@ sources:
     category: community
     sourceTier: 3
     digestMaxItems: 2
-    enabled: true
+    # Disabled Oct 2026: every request from GitHub Actions gets "HTTP 403:
+    # Blocked", and no Reddit row has ever been stored. Reddit may return via
+    # its official API, which needs a registered Reddit app and credentials.
+    # The collector (src/collectors/reddit.ts) is kept for that.
+    enabled: false
     maxItems: 20
     tags: [reddit, claude, anthropic]
     skipRelevanceFilter: true
@@ -280,7 +338,11 @@ sources:
     category: community
     sourceTier: 3
     digestMaxItems: 2
-    enabled: true
+    # Disabled Oct 2026: every request from GitHub Actions gets "HTTP 403:
+    # Blocked", and no Reddit row has ever been stored. Reddit may return via
+    # its official API, which needs a registered Reddit app and credentials.
+    # The collector (src/collectors/reddit.ts) is kept for that.
+    enabled: false
     maxItems: 20
     tags: [reddit, local-ai, models]
     skipRelevanceFilter: true
@@ -292,7 +354,11 @@ sources:
     category: community
     sourceTier: 3
     digestMaxItems: 2
-    enabled: true
+    # Disabled Oct 2026: every request from GitHub Actions gets "HTTP 403:
+    # Blocked", and no Reddit row has ever been stored. Reddit may return via
+    # its official API, which needs a registered Reddit app and credentials.
+    # The collector (src/collectors/reddit.ts) is kept for that.
+    enabled: false
     maxItems: 20
     tags: [reddit, ml, research]
     skipRelevanceFilter: true
@@ -304,7 +370,11 @@ sources:
     category: community
     sourceTier: 3
     digestMaxItems: 2
-    enabled: true
+    # Disabled Oct 2026: every request from GitHub Actions gets "HTTP 403:
+    # Blocked", and no Reddit row has ever been stored. Reddit may return via
+    # its official API, which needs a registered Reddit app and credentials.
+    # The collector (src/collectors/reddit.ts) is kept for that.
+    enabled: false
     maxItems: 20
     tags: [reddit, openai, chatgpt]
     skipRelevanceFilter: false
@@ -316,7 +386,11 @@ sources:
     category: community
     sourceTier: 3
     digestMaxItems: 1
-    enabled: true
+    # Disabled Oct 2026: every request from GitHub Actions gets "HTTP 403:
+    # Blocked", and no Reddit row has ever been stored. Reddit may return via
+    # its official API, which needs a registered Reddit app and credentials.
+    # The collector (src/collectors/reddit.ts) is kept for that.
+    enabled: false
     maxItems: 15
     tags: [reddit, ai]
     skipRelevanceFilter: false
@@ -339,7 +413,12 @@ sources:
     category: community
     sourceTier: 3
     digestMaxItems: 2
-    enabled: true
+    # Disabled Oct 2026: mostly demos and LoRAs, not news. The listing has no
+    # modified date, so every Space looked new on every run and any Space with
+    # 100+ likes scored 93, the Top Story on 4 of 7 days. The collector now
+    # reads the fields the API returns (createdAt, trendingScore); add
+    # &expand[]=author&expand[]=cardData to the URL for real titles.
+    enabled: false
     tags: [huggingface, demos]
     skipRelevanceFilter: true
 
@@ -432,7 +511,7 @@ groups:
   xai: [xai_blog]
   nvidia: [nvidia_developer_blog]
   individuals: [karpathy_blog, sam_altman_blog, steipete_blog]
-  press: [techcrunch_ai, venturebeat_ai, theverge_ai, mit_tech_review_ai]
+  press: [techcrunch_ai, venturebeat_ai, theverge_ai, mit_tech_review_ai, ars_technica_ai, guardian_ai, wired_ai]
   community: [hackernews_top, show_hn, reddit_claudeai, reddit_localllama, reddit_machinelearning, reddit_artificial, reddit_openai, hf_trending_spaces, devto_ai]
   research: [hf_daily_papers, arxiv_cs_ai, arxiv_cs_lg, arxiv_cs_cv, google_research]
   github: [github_trending, claude_code_releases, openai_codex_releases, vllm_releases]
