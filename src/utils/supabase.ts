@@ -4,6 +4,7 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from './logger.js';
+import { CARRIED_SIGNALS, mergeCoverage, type Coverage } from './dedup.js';
 import type { NewsItem } from '../collectors/types.js';
 
 const log = createLogger('supabase');
@@ -26,6 +27,54 @@ function getSupabaseClient(): SupabaseClient {
   return client;
 }
 
+const rowKey = (url: string, source: string) => `${source}\n${url}`;
+
+/**
+ * The stored metadata of the rows these items will overwrite, keyed by
+ * (url, source). Looked up by URL in chunks to keep the request line short.
+ */
+async function loadStoredMetadata(
+  sb: SupabaseClient,
+  items: NewsItem[],
+): Promise<Map<string, Record<string, unknown>>> {
+  const stored = new Map<string, Record<string, unknown>>();
+  const urls = [...new Set(items.map((i) => i.url))];
+  const CHUNK = 40;
+
+  for (let i = 0; i < urls.length; i += CHUNK) {
+    const { data, error } = await sb
+      .from('news_items')
+      .select('url, source, metadata')
+      .in('url', urls.slice(i, i + CHUNK));
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) stored.set(rowKey(row.url, row.source), row.metadata ?? {});
+  }
+  return stored;
+}
+
+/**
+ * An upsert replaces `metadata` wholesale, and each run sees an item's other
+ * copies only while they are still in their own feeds. Keep what earlier runs
+ * recorded: the union of `coveredBy`, and any carried signal (e.g. HN points
+ * on a press article) this run no longer has.
+ */
+export function mergeStoredMetadata(item: NewsItem, stored: Record<string, unknown> | undefined) {
+  const meta: Record<string, unknown> = { ...item.metadata };
+  if (!stored) return meta;
+
+  for (const key of CARRIED_SIGNALS) {
+    if (meta[key] === undefined && stored[key] !== undefined) meta[key] = stored[key];
+  }
+  const storedCoverage = Array.isArray(stored.coveredBy) ? (stored.coveredBy as Coverage[]) : [];
+  const coverage = mergeCoverage(
+    { source: item.source, url: item.url },
+    storedCoverage,
+    Array.isArray(meta.coveredBy) ? (meta.coveredBy as Coverage[]) : [],
+  );
+  if (coverage.length > 0) meta.coveredBy = coverage;
+  return meta;
+}
+
 /**
  * Upsert news items into the news_items table.
  * Uses (url, source) composite unique constraint.
@@ -34,11 +83,20 @@ function getSupabaseClient(): SupabaseClient {
  * - New rows get fetched_at = DEFAULT NOW() from the DB
  * - Existing rows preserve their original fetched_at
  * This prevents old items from appearing "new" on every collection run.
+ *
+ * metadata is merged with the stored row's (see mergeStoredMetadata).
  */
 export async function upsertNewsItems(items: NewsItem[]): Promise<number> {
   if (items.length === 0) return 0;
 
   const sb = getSupabaseClient();
+
+  let stored = new Map<string, Record<string, unknown>>();
+  try {
+    stored = await loadStoredMetadata(sb, items);
+  } catch (err) {
+    log.warn(`Could not read stored metadata; coverage from earlier runs may be overwritten: ${(err as Error).message}`);
+  }
 
   // Map to DB columns — fetched_at intentionally omitted
   const rows = items.map((item) => ({
@@ -51,7 +109,7 @@ export async function upsertNewsItems(items: NewsItem[]): Promise<number> {
     authors: item.authors ?? null,
     tags: item.tags,
     published_at: item.publishedAt ?? null,
-    metadata: item.metadata ?? {},
+    metadata: mergeStoredMetadata(item, stored.get(rowKey(item.url, item.source))),
   }));
 
   const BATCH_SIZE = 500;
