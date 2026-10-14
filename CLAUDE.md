@@ -1,7 +1,7 @@
 # AI Newsroom - Project Context
 
 ## What This Project Is
-AI Newsroom is an open-source, real-time AI/tech news aggregator exposed as an MCP (Model Context Protocol) server. It scrapes 35 sources every 6 hours, stores results in Supabase, and lets anyone query fresh AI news from Claude Code, Claude Desktop, or any MCP-compatible client with a single command.
+AI Newsroom is an open-source, real-time AI/tech news aggregator exposed as an MCP (Model Context Protocol) server. It collects from 30 enabled sources (38 defined) every 6 hours, stores results in Supabase, and lets anyone query fresh AI news from Claude Code, Claude Desktop, or any MCP-compatible client with a single command.
 
 ## Architecture Overview
 
@@ -28,6 +28,7 @@ Sources are defined in `config/sources.yaml`. Each source has:
 - `name`: display name
 - `type`: `rss` | `json_api` | `github_releases` | `github_trending` | `html_scrape`
 - `url`: fetch endpoint
+- `extraUrls`: `html_scrape` only, more pages for the same site scraper (Anthropic News also reads `/research`)
 - `category`: `company_blog` | `community` | `research` | `industry_news` | `github`
 - `enabled`: boolean
 - `refreshIntervalHours`: override per-source if needed
@@ -38,7 +39,32 @@ Sources are defined in `config/sources.yaml`. Each source has:
   A full move of collectors and digest into Supabase Edge Functions is **deferred, not rejected**. Revisit it if
   the two-platform setup causes trouble. Known costs of that move: Edge Function CPU and wall-clock limits, some
   sources may block cloud-provider IPs, and deploys would stop happening automatically on merge to `main`.
-- **Next up: a rebuild of ranking and editorial direction**, as its own PR, separate from scheduling.
+- **Ranking rebuild in progress**, one PR per step, based on a read-only audit
+  (`ranking-audit.md`, the owner's local file, not committed). The product: a morning
+  briefing of the big AI news (frontier model launches, major product launches,
+  policy and safety, lab and business news), with builder content as a secondary.
+  1. **Fix collection** (this step). Only what gets collected and how cleanly;
+     scoring, slotting, the digest format and the MCP were deliberately left alone.
+  2. **AI editor:** judge each item once, at collection time, and store the judgment.
+  3. **New digest layout**, with a preview mode.
+  4. **MCP reads the stored judgments**, then redeploy the Edge Function.
+- **What step 1 changed** (CHANGELOG has the full list):
+  - Disabled: Reddit ×5 (403 from Actions), HuggingFace Trending Spaces (demos, and pinned
+    at 93 by a date bug), VentureBeat (bot challenge, 429). Reasons are in `sources.yaml`.
+  - Fixed: Anthropic News (dated cards on `/news` and `/research`, including top-level model
+    pages like `/claude-haiku-5-5`; summaries and exact times from each article page),
+    Anthropic changelog (new URL, one item per bullet), DeepMind and Google Research
+    (new feed URLs), Meta (newsroom AI-tag feed instead of a stale scrape), MIT TR (AI topic
+    feed), HF Daily Papers (`paper.upvotes`), HN (`hitsPerPage`, raw points kept).
+  - Added: Ars Technica AI, The Guardian AI, WIRED AI (tier 2, `industry_news`).
+  - Every item: HTML entities decoded, whitespace collapsed, `utm_*` stripped from URLs
+    before the `(url, source)` identity is formed (`src/utils/normalize.ts`).
+  - Dedup keeps one row per story but records the other copies in `metadata.coveredBy`
+    and keeps their `hnPoints` / `upvotes`; the upsert merges these with what's stored.
+  - The post-"Done" hang: rss-parser's `parseURL` left responses open. All HTTP now goes
+    through `src/utils/http.ts` (deadline, read-or-cancel), with a 15 s exit backstop.
+- **Reddit is disabled.** It may return later via Reddit's official API, which needs a
+  registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - The README's "Status & roadmap" section says the same thing. Keep the two in sync.
 
 ## Key Design Decisions
@@ -112,7 +138,7 @@ just what a collector happened to pick up.
 GitHub rate limit from 60/hr to 5,000/hr.
 
 ## File Structure
-Generated from `git ls-files` (2026-10-12). Regenerate it from there rather than editing by hand.
+Generated from `git ls-files` (2026-10-14). Regenerate it from there rather than editing by hand.
 ```
 ai-newsroom/
 ├── .github/
@@ -133,12 +159,13 @@ ai-newsroom/
 ├── src/
 │   ├── collectors/
 │   │   ├── index.ts         # Orchestrator: loads sources.yaml, runs enabled collectors
+│   │   ├── collect.test.ts  # `npm run test:collect` regression suite (no network)
 │   │   ├── rss.ts           # RSS/Atom feed collector
 │   │   ├── reddit.ts        # Reddit JSON API collector
 │   │   ├── hackernews.ts    # HackerNews API collector
 │   │   ├── github.ts        # GitHub trending + release watcher
 │   │   ├── huggingface.ts   # HuggingFace papers + spaces
-│   │   ├── scraper.ts       # Generic HTML scraper (fallback)
+│   │   ├── scraper.ts       # Site-specific HTML scrapers (Anthropic news/research, release notes)
 │   │   └── types.ts         # Shared types: NewsItem, Source, etc.
 │   ├── digest/
 │   │   ├── generate.ts      # Pull data, filter, send; records digest_state.last_digest_at
@@ -154,8 +181,10 @@ ai-newsroom/
 │       ├── cleanup.ts       # `npm run cleanup`: delete items older than 90 days
 │       ├── scoring.ts       # Relevance score 0-100 (recency / community / tier)
 │       ├── slots.ts         # Slotted display layout (get_top_picks, digest)
-│       ├── dedup.ts         # URL + title-similarity deduplication
+│       ├── dedup.ts         # URL + title-similarity dedup; records coveredBy on the kept row
 │       ├── date-filter.ts   # Skip items older than 7 days
+│       ├── http.ts          # fetch with deadline; every response read or cancelled
+│       ├── normalize.ts     # Entity decoding, whitespace, utm_* stripping for every item
 │       ├── relevance-filter.ts # AI keyword filter
 │       ├── test-slots.ts    # Manual script: print slotted display from live data
 │       └── logger.ts        # Logging utility
@@ -191,6 +220,7 @@ ai-newsroom/
 - `npm run digest` — Generate and send personal digest
 - `npm run typecheck` — Type-check `src/` (note: `tsconfig.json` EXCLUDES `supabase/`)
 - `npm run test:mcp` — MCP regression suite; no network or credentials needed
+- `npm run test:collect` — collector regression suite (clean-up, dedup coverage, Anthropic parsers); no network
 - `supabase functions serve mcp` — Run Edge Function locally (this is the MCP server endpoint)
 
 ## Branching and CI
@@ -219,7 +249,7 @@ linear-history rule, so `--merge` works.
 `typecheck + tests` check is required to merge. It runs:
 
 1. `npm run typecheck`
-2. `npm run test:mcp`
+2. `npm run test:mcp` and `npm run test:collect`
 3. **NUL-byte scan** — a raw NUL makes tooling treat a source file as binary
    (ripgrep stops reporting line matches). One reached `main` on 2026-08-05.
 4. **docs-match-code** — every tool declared, routed *and* in the README, with
@@ -263,6 +293,9 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+# GitHub (optional for collectors; collect.yml passes the workflow's own token)
+GITHUB_TOKEN=...   # raises the release sources' API limit from 60/hour per IP
 
 # Claude API (optional, for relevance filtering in digest)
 ANTHROPIC_API_KEY=sk-ant-...
