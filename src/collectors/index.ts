@@ -25,6 +25,7 @@ import { deduplicateItems } from '../utils/dedup.js';
 import { filterRecentItems } from '../utils/date-filter.js';
 import { isAIRelevant } from '../utils/relevance-filter.js';
 import { fetchJson } from '../utils/http.js';
+import { normalizeItem } from '../utils/normalize.js';
 import type { NewsItem, SourceConfig, SourcesConfig } from './types.js';
 
 const log = createLogger('orchestrator');
@@ -116,6 +117,8 @@ async function collectDevTo(source: SourceConfig): Promise<NewsItem[]> {
       tags: source.tags,
       fetchedAt: now,
       publishedAt: a.published_at,
+      // `score` is replaced by the relevance score before storage
+      metadata: { reactions: a.public_reactions_count ?? 0 },
     }));
 
     const recent = filterRecentItems(items);
@@ -160,7 +163,8 @@ async function main() {
 
   for (const source of sources) {
     try {
-      const items = await collectSource(source);
+      // Entities, whitespace and tracking parameters, for every collector
+      const items = (await collectSource(source)).map(normalizeItem);
       allItems.push(...items);
       results.push({ source: source.id, count: items.length });
     } catch (err) {
