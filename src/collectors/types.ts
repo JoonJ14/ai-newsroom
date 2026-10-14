@@ -32,6 +32,8 @@ export interface SourceConfig {
   name: string;
   type: CollectorType;
   url: string;
+  /** html_scrape only: more pages parsed by the same site scraper (e.g. Anthropic's /research) */
+  extraUrls?: string[];
   category: SourceCategory;
   enabled: boolean;
   maxItems?: number;
