@@ -117,9 +117,16 @@ is done, **nothing runs automatically**. Do step 4 right away.
 ### 4. Run migration 003
 
 Open the Supabase SQL Editor, paste the whole of
-`supabase/migrations/003_schedule_triggers.sql`, and run it. It's safe to re-run:
-extensions use `if not exists`, functions use `create or replace`, and named
-cron jobs are overwritten, not duplicated.
+`supabase/migrations/003_schedule_triggers.sql`, and run it.
+
+**After the first run, apply later changes by running only what changed:** the
+one `create or replace function` you edited, or the one `cron.schedule(...)` call.
+Named cron jobs are overwritten, not duplicated, and functions are replaced.
+
+Re-running the whole file should also work. Its pg_cron setup (`create
+extension` and the two grants on schema `cron`) now runs only when pg_cron isn't
+installed yet. Unguarded, those lines tripped Supabase's pg_cron access hook on
+a second run with "dependent privileges exist", and the file stopped there.
 
 ### 5. Verify
 
@@ -163,8 +170,8 @@ Change **one number**: the `h constant integer := 9` line in
 **Allowed: 0 or 3–23. Not 1 or 2.** On the fall-back night 1:00 AM happens
 twice, so a 1:00 digest would go out twice. On the spring-forward night 2:00 AM
 doesn't exist, so a 2:00 digest would be skipped. The function raises an error
-for either value, and the migration checks it when you run it. Then re-run the migration, or just that
-`create or replace function` statement.
+for either value, and the migration checks it when you run it. Then run just
+that `create or replace function` statement (the whole migration also works).
 
 The other times derive from it, so they move together:
 
