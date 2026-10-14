@@ -38,6 +38,11 @@ jobs:
       - name: MCP regression suite
         run: npm run test:mcp
 
+      # Collection clean-up, dedup coverage and the Anthropic parsers. Also
+      # pure functions on inline HTML: no network, no credentials.
+      - name: Collector regression suite
+        run: npm run test:collect
+
       # A raw NUL makes tooling treat a source file as binary — ripgrep stops
       # reporting line matches and diffs degrade. One reached main on
       # 2026-08-05, so it is now checked rather than noticed by accident.

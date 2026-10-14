@@ -11,7 +11,8 @@
     "cleanup": "tsx src/utils/cleanup.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "test:mcp": "tsx supabase/functions/mcp/external.test.ts"
+    "test:mcp": "tsx supabase/functions/mcp/external.test.ts",
+    "test:collect": "tsx src/collectors/collect.test.ts"
   },
   "keywords": [
     "ai",
