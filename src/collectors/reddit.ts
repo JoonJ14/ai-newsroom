@@ -4,6 +4,7 @@
 
 import { createLogger } from '../utils/logger.js';
 import { filterRecentItems } from '../utils/date-filter.js';
+import { fetchJson } from '../utils/http.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 const log = createLogger('reddit');
@@ -33,18 +34,9 @@ export async function collectReddit(source: SourceConfig): Promise<NewsItem[]> {
   log.info(`Fetching Reddit: ${source.name} (${source.url})`);
 
   try {
-    const res = await fetch(source.url, {
-      headers: {
-        'User-Agent': 'ai-newsroom:0.1 (by /u/ai-newsroom-bot)',
-        Accept: 'application/json',
-      },
+    const listing = await fetchJson<RedditListing>(source.url, {
+      headers: { 'User-Agent': 'ai-newsroom:0.1 (by /u/ai-newsroom-bot)' },
     });
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    }
-
-    const listing = (await res.json()) as RedditListing;
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 20;
 

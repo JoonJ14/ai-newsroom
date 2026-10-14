@@ -24,6 +24,7 @@ import { computeRelevanceScore } from '../utils/scoring.js';
 import { deduplicateItems } from '../utils/dedup.js';
 import { filterRecentItems } from '../utils/date-filter.js';
 import { isAIRelevant } from '../utils/relevance-filter.js';
+import { fetchJson } from '../utils/http.js';
 import type { NewsItem, SourceConfig, SourcesConfig } from './types.js';
 
 const log = createLogger('orchestrator');
@@ -91,16 +92,7 @@ async function collectDevTo(source: SourceConfig): Promise<NewsItem[]> {
   log.info(`Fetching Dev.to: ${source.name}`);
 
   try {
-    const res = await fetch(source.url, {
-      headers: {
-        'User-Agent': 'ai-newsroom/0.1',
-        Accept: 'application/json',
-      },
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-    const articles = (await res.json()) as Array<{
+    const articles = await fetchJson<Array<{
       title: string;
       url: string;
       description?: string;
@@ -108,7 +100,7 @@ async function collectDevTo(source: SourceConfig): Promise<NewsItem[]> {
       public_reactions_count?: number;
       published_at?: string;
       tag_list?: string[];
-    }>;
+    }>>(source.url);
 
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 15;
@@ -274,7 +266,18 @@ async function main() {
   log.info(`Done in ${elapsed}s`);
 }
 
-main().catch((err) => {
-  log.error('Fatal error', err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Backstop only. Every HTTP response is read or cancelled (src/utils/http.ts),
+    // so nothing should keep the process alive after "Done". If something does,
+    // say what it is and exit, rather than hold the Actions job open until its
+    // timeout. unref() lets a clean run exit without waiting for this timer.
+    setTimeout(() => {
+      log.warn(`Still running 15s after Done. Open resources: ${process.getActiveResourcesInfo().join(', ')}. Exiting.`);
+      process.exit(0);
+    }, 15_000).unref();
+  })
+  .catch((err) => {
+    log.error('Fatal error', err);
+    process.exit(1);
+  });

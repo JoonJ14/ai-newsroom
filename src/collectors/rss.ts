@@ -1,20 +1,16 @@
 /**
- * RSS/Atom feed collector using rss-parser.
+ * RSS/Atom feed collector. The feed is fetched with fetchText() and only parsed
+ * by rss-parser: its own parseURL() leaves responses open (see src/utils/http.ts).
  */
 
 import Parser from 'rss-parser';
 import { createLogger } from '../utils/logger.js';
 import { filterRecentItems } from '../utils/date-filter.js';
+import { fetchText } from '../utils/http.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 const log = createLogger('rss');
-const parser = new Parser({
-  timeout: 15_000,
-  headers: {
-    'User-Agent': 'ai-newsroom/0.1 (+https://github.com/joonj14/ai-newsroom)',
-    Accept: 'application/rss+xml, application/xml, text/xml, */*',
-  },
-});
+const parser = new Parser();
 
 function safeISODate(input: string | undefined): string | undefined {
   if (!input) return undefined;
@@ -26,7 +22,10 @@ export async function collectRSS(source: SourceConfig): Promise<NewsItem[]> {
   log.info(`Fetching RSS: ${source.name} (${source.url})`);
 
   try {
-    const feed = await parser.parseURL(source.url);
+    const xml = await fetchText(source.url, {
+      headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*' },
+    });
+    const feed = await parser.parseString(xml);
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 30;
 
