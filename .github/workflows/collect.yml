@@ -38,6 +38,11 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # The workflow's own token, for the GitHub release sources. Unauthenticated
+          # API calls share 60/hour per runner IP; on 2026-10-06 all three release
+          # sources failed with "rate limit exceeded". Reading public releases
+          # needs no permission beyond the read-only one above.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run collect
 
       - name: Cleanup old items (90-day retention)
