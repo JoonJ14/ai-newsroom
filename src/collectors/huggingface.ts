@@ -6,10 +6,16 @@
 
 import { createLogger } from '../utils/logger.js';
 import { filterRecentItems } from '../utils/date-filter.js';
+import { fetchJson } from '../utils/http.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 const log = createLogger('huggingface');
 
+/**
+ * One entry of /api/daily_papers. Engagement sits on `paper` (`upvotes`);
+ * there is no `numLikes` field, which the collector used to read, so every
+ * paper was stored with 0 likes.
+ */
 interface HFPaper {
   paper: {
     id: string;
@@ -17,21 +23,33 @@ interface HFPaper {
     summary?: string;
     authors?: { name: string }[];
     publishedAt?: string;
+    upvotes?: number;
+    githubRepo?: string;
+    githubStars?: number;
+    projectPage?: string;
+    submittedOnDailyAt?: string;
   };
-  numLikes?: number;
+  numComments?: number;
+  organization?: { name?: string; fullname?: string };
 }
 
+/**
+ * One entry of /api/spaces. The plain listing returns only `_id, id, likes,
+ * trendingScore, createdAt, sdk, tags, private`. `author`, `cardData` and
+ * `lastModified` appear only when the URL asks for them with
+ * `expand[]=author&expand[]=cardData&expand[]=lastModified`.
+ */
 interface HFSpace {
   id: string;        // e.g. "user/space-name"
+  likes?: number;
+  trendingScore?: number;
+  createdAt?: string;
+  sdk?: string;
+  author?: string;
   cardData?: {
     title?: string;
     short_description?: string;
   };
-  author?: string;
-  likes?: number;
-  trendingScore?: number;
-  lastModified?: string;
-  sdk?: string;
 }
 
 /**
@@ -41,16 +59,7 @@ export async function collectHFDailyPapers(source: SourceConfig): Promise<NewsIt
   log.info(`Fetching HuggingFace daily papers: ${source.name}`);
 
   try {
-    const res = await fetch(source.url, {
-      headers: {
-        'User-Agent': 'ai-newsroom/0.1',
-        Accept: 'application/json',
-      },
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-    const papers = (await res.json()) as HFPaper[];
+    const papers = await fetchJson<HFPaper[]>(source.url);
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 20;
 
@@ -63,7 +72,7 @@ export async function collectHFDailyPapers(source: SourceConfig): Promise<NewsIt
           url: `https://huggingface.co/papers/${p.id}`,
           source: source.id,
           sourceCategory: source.category,
-          score: entry.numLikes ?? 0,
+          score: p.upvotes ?? 0,
           summary: p.summary?.slice(0, 500),
           authors: p.authors?.map((a) => a.name).join(', '),
           tags: source.tags,
@@ -71,7 +80,13 @@ export async function collectHFDailyPapers(source: SourceConfig): Promise<NewsIt
           publishedAt: p.publishedAt,
           metadata: {
             arxivId: p.id,
-            likes: entry.numLikes ?? 0,
+            upvotes: p.upvotes ?? 0,
+            numComments: entry.numComments ?? 0,
+            githubRepo: p.githubRepo,
+            githubStars: p.githubStars,
+            projectPage: p.projectPage,
+            organization: entry.organization?.fullname ?? entry.organization?.name,
+            submittedOnDailyAt: p.submittedOnDailyAt,
           },
         };
       });
@@ -92,16 +107,7 @@ export async function collectHFTrendingSpaces(source: SourceConfig): Promise<New
   log.info(`Fetching HuggingFace trending spaces: ${source.name}`);
 
   try {
-    const res = await fetch(source.url, {
-      headers: {
-        'User-Agent': 'ai-newsroom/0.1',
-        Accept: 'application/json',
-      },
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-    const spaces = (await res.json()) as HFSpace[];
+    const spaces = await fetchJson<HFSpace[]>(source.url);
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 20;
 
@@ -120,12 +126,17 @@ export async function collectHFTrendingSpaces(source: SourceConfig): Promise<New
           authors: space.author ?? space.id.split('/')[0],
           tags: source.tags,
           fetchedAt: now,
-          publishedAt: space.lastModified,
+          // When the Space was created. With no date at all the 7-day filter
+          // let every Space through, and recency scored it as brand new on
+          // every run. `lastModified` (when expanded) moves on every commit, so
+          // it would make old Spaces look new too.
+          publishedAt: space.createdAt,
           metadata: {
             spaceId: space.id,
             sdk: space.sdk,
             trendingScore: space.trendingScore,
             likes: space.likes ?? 0,
+            createdAt: space.createdAt,
           },
         };
       });
