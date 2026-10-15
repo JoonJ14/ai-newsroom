@@ -28,14 +28,18 @@ export async function sendSlackDigest(message: string): Promise<void> {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
   if (!webhookUrl) throw new Error('SLACK_WEBHOOK_URL not set');
 
-  const chunks = splitAtSections(message, 40_000);
+  // Titles come from feeds. Escape Slack's control characters so "<!channel>"
+  // or "<https://x|label>" in a title is shown, not acted on
+  const escaped = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const chunks = splitAtSections(escaped, 40_000);
   log.info(`Sending digest to Slack (${chunks.length} message(s))`);
 
   for (let i = 0; i < chunks.length; i++) {
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: chunks[i] }),
+      // Plain text: feed titles with * _ ~ or ` must not turn into formatting
+      body: JSON.stringify({ text: chunks[i], mrkdwn: false }),
     });
 
     if (!res.ok) {

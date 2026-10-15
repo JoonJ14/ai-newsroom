@@ -30,7 +30,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   overwritten by the relevance score), Dev.to `reactions`, and for HF papers
   `upvotes`, `numComments`, `githubRepo`/`githubStars`, `projectPage` and the
   submitting organization.
-- **`npm run test:collect`** (48 assertions, no network) and a CI step for it.
+- **`npm run test:collect`** (86 assertions, no network) and a CI step for it.
 
 **Scheduling and CI**
 
@@ -93,7 +93,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/claude-haiku-5-5`. It now takes every dated card linking into anthropic.com,
   on `/news` and `/research`. The featured card no longer yields a row titled
   "Announcements". Each recent item's own page supplies a summary and the exact
-  publish time; the listing had a summary for 2 of 23 rows.
+  publish time; the listing had a summary for 2 of 23 rows. The 7-day filter
+  runs on that exact time, so an article from seven days ago is not dropped
+  because its listing date reads as midnight UTC.
 - **Anthropic changelog**: the old URL redirects to
   `platform.claude.com/docs/en/release-notes/overview` and parsed to nothing
   since August. New parser, one item per bullet (one day held a model launch
@@ -124,6 +126,45 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Migration 003 can be re-run.** pg_cron's `create extension` and grants now
   run only when the extension is missing; on a second run they tripped
   Supabase's pg_cron access hook ("dependent privileges exist").
+- After review (Codex):
+  - The upsert merges stored metadata. If that read fails, or hits PostgREST's
+    1,000-row cap, the run now only inserts new items, rather than overwrite
+    existing rows and erase their coverage. `collect.yml` runs one at a time,
+    so overlapping runs can't write back stale copies.
+  - Collector responses are capped at 10 MB, cancelled past that instead of
+    buffered.
+  - Decoded titles are plain text in every digest adapter: Telegram no longer
+    parses them as HTML ("<model>" failed the send), Discord sends no mentions
+    and escapes its markup on title lines (no masked links, spoilers or
+    emphasis), Slack sends with `mrkdwn: false` and `<`, `>`, `&` escaped,
+    and Telegram gets a word joiner after `@` so a title can't mention anyone. Every item's text is decoded exactly once: HN
+    text and cheerio's (already decoded) scraped text were decoded twice. HN
+    summaries are cut to 500 characters after decoding, not before. No cut
+    leaves half an emoji (PostgreSQL rejects a lone surrogate, failing the
+    whole upsert batch), and lone surrogates from feeds are dropped.
+  - `utm_` parameters are also stripped when percent-encoded (`utm%5Fsource`). Control characters are dropped
+    from titles and summaries (a decoded `&#27;` is a terminal escape).
+  - The metadata lookup quotes and escapes every URL itself: supabase-js's
+    `.in()` doesn't escape `"` or `\`, so one odd feed URL failed the lookup.
+  - Changelog entries that share their first eight words get a hash of their
+    text, not a number by position, so an entry added above can't take an
+    older entry's row.
+  - Dedup ignores a URL's fragment again (`story#comments` is `story`), except
+    app routes (`#/…`). Changelog URLs therefore carry the day in the query
+    (`?day=…&entry=…#…`): the same opening words on two days are two entries.
+  - Dedup groups copies into stories, so a copy matching one story by URL and
+    another by title joins them, and the kept row carries the story's biggest
+    HN thread even after its absorber was replaced. Titles merge copies from
+    different sources only, and no story ever holds two different URLs from
+    one source: within a source, different URLs are different items (two
+    changelog entries for two regions were 0.83 alike). Copies of one
+    `(url, source)` row are merged first, so an upsert batch never holds a row
+    twice; then every URL match, then titles, so a similar title can't claim
+    a copy whose exact URL belongs to another story.
+  - A failed upsert batch now fails the run (exit code 1), after every batch
+    has been tried. Before, lost items still gave a green run.
+  - The orchestrator stops starting sources after 5 minutes, so a broad outage
+    can't run the 10-minute job out before anything is stored.
 
 **MCP server — availability**
 

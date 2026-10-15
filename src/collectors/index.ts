@@ -30,6 +30,14 @@ import type { NewsItem, SourceConfig, SourcesConfig } from './types.js';
 
 const log = createLogger('orchestrator');
 
+/**
+ * The Actions job has 10 minutes in all. Each request has a deadline, but in a
+ * broad outage every source could run to its deadline one after another, and
+ * the job would be killed before anything was stored. Once this budget is
+ * spent, the remaining sources are skipped and what was collected is stored.
+ */
+const COLLECTION_BUDGET_MS = 5 * 60_000;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -162,9 +170,20 @@ async function main() {
   const results: { source: string; count: number; error?: string }[] = [];
 
   for (const source of sources) {
+    if (Date.now() - startTime >= COLLECTION_BUDGET_MS) {
+      const msg = 'skipped, collection time budget used up';
+      log.error(`Source ${source.id} ${msg}`);
+      results.push({ source: source.id, count: 0, error: msg });
+      continue;
+    }
     try {
-      // Entities, whitespace and tracking parameters, for every collector
-      const items = (await collectSource(source)).map(normalizeItem);
+      // Entities, whitespace and tracking parameters, for every collector.
+      // These collectors read pages with cheerio, which has already decoded the
+      // text. Feed text is decoded again on purpose: feeds such as The Verge's
+      // encode entities twice, so titles still carry "&#8217;" after XML
+      // parsing. A literal entity in a feed title looks the same and is rarer.
+      const decoded = source.type === 'html_scrape' || source.type === 'github_trending';
+      const items = (await collectSource(source)).map((item) => normalizeItem(item, { decoded }));
       allItems.push(...items);
       results.push({ source: source.id, count: items.length });
     } catch (err) {
@@ -255,6 +274,8 @@ async function main() {
       log.info(`Upserted ${upserted} items to database`);
     } catch (err) {
       log.error('Failed to upsert items to database', (err as Error).message);
+      // Fail the Actions run: lost items must not pass as a green run
+      process.exitCode = 1;
     }
   }
 
@@ -278,7 +299,7 @@ main()
     // timeout. unref() lets a clean run exit without waiting for this timer.
     setTimeout(() => {
       log.warn(`Still running 15s after Done. Open resources: ${process.getActiveResourcesInfo().join(', ')}. Exiting.`);
-      process.exit(0);
+      process.exit(); // keeps process.exitCode, set if the upsert failed
     }, 15_000).unref();
   })
   .catch((err) => {

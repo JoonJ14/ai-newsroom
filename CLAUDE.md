@@ -215,7 +215,10 @@ ai-newsroom/
 ```
 
 ## Commands
-- `npm run collect` — Run all enabled collectors once (manual trigger)
+- `npm run collect` — Run all enabled collectors once (manual trigger). Not while
+  a `collect.yml` run is in progress: each run reads stored metadata, merges and
+  writes it back, so the two could overwrite each other's coverage. `collect.yml`
+  runs one at a time (`concurrency: collect`); a local run is outside that.
 - `npm run collect -- --source anthropic_blog` — Run a single collector
 - `npm run digest` — Generate and send personal digest
 - `npm run typecheck` — Type-check `src/` (note: `tsconfig.json` EXCLUDES `supabase/`)

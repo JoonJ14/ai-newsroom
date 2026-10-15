@@ -27,18 +27,33 @@ function splitForDiscord(message: string, maxLen: number): string[] {
   return chunks;
 }
 
+/**
+ * Titles come from feeds, so show them as written: escape Discord's markup
+ * characters (masked links, spoilers, emphasis, code, <t:…> and <:emoji:>),
+ * and the backslashes that could cancel those escapes. Discord hides an
+ * escaping backslash, so ordinary text renders the same. The "→ url" lines
+ * are left alone so links stay clickable.
+ */
+export function escapeDiscordMarkup(message: string): string {
+  return message
+    .split('\n')
+    .map((line) => (line.startsWith('  → ') ? line : line.replace(/[\\[\]*_~`|<]/g, '\\$&')))
+    .join('\n');
+}
+
 export async function sendDiscordDigest(message: string): Promise<void> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) throw new Error('DISCORD_WEBHOOK_URL not set');
 
-  const chunks = splitForDiscord(message, 2000);
+  const chunks = splitForDiscord(escapeDiscordMarkup(message), 2000);
   log.info(`Sending digest to Discord (${chunks.length} message(s))`);
 
   for (let i = 0; i < chunks.length; i++) {
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: chunks[i] }),
+      // Titles come from feeds: never let one ping @everyone, a role or a user
+      body: JSON.stringify({ content: chunks[i], allowed_mentions: { parse: [] } }),
     });
 
     if (!res.ok) {

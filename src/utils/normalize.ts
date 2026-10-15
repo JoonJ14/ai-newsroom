@@ -30,19 +30,52 @@ export function decodeEntities(text: string): string {
   });
 }
 
-/** Decode entities and collapse all whitespace, newlines included, to single spaces. */
-export function cleanText(text: string): string {
-  return decodeEntities(text).replace(/\s+/g, ' ').trim();
+/** Half of an emoji (a UTF-16 surrogate pair), as left by cutting text at a fixed length. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * Drop control characters (a decoded `&#27;` is a terminal escape in the
+ * collector's log) and lone surrogates (PostgreSQL rejects them, failing the
+ * whole upsert batch), and collapse all whitespace, newlines included, to
+ * single spaces. For text that is already decoded, such as cheerio's.
+ */
+export function collapseText(text: string): string {
+  return text
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '')
+    .replace(LONE_SURROGATE, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-/** Plain text from an HTML fragment such as an HN `story_text`. */
+/** The first `max` UTF-16 units of `text`, without splitting a surrogate pair. */
+export function cutText(text: string, max: number): string {
+  const cut = text.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+/** Decode entities, then collapseText. */
+export function cleanText(text: string): string {
+  return collapseText(decodeEntities(text));
+}
+
+/**
+ * Plain text from an HTML fragment such as an HN `story_text`: tags removed,
+ * whitespace collapsed. Entities are left for normalizeItem, which decodes
+ * every item's text once; decoding here too would turn a literal
+ * "&amp;lt;" into "<".
+ */
 export function htmlToText(html: string): string {
-  return cleanText(html.replace(/<(br|\/p|p)\b[^>]*>/gi, ' ').replace(/<[^>]*>/g, ''));
+  return html
+    .replace(/<(br|\/p|p)\b[^>]*>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Remove `utm_*` query parameters. A URL without any is returned untouched. */
 export function stripTrackingParams(url: string): string {
-  if (!/[?&]utm_/i.test(url)) return url;
+  // Also percent-encoded, as in `utm%5Fsource` or `%55TM_source`, which URLSearchParams decodes
+  if (!/[?&](?:u|%[57]5)(?:t|%[57]4)(?:m|%[46]d)(?:_|%5f)/i.test(url)) return url;
   let u: URL;
   try {
     u = new URL(url);
@@ -55,11 +88,16 @@ export function stripTrackingParams(url: string): string {
   return u.toString();
 }
 
-export function normalizeItem(item: NewsItem): NewsItem {
-  const summary = item.summary ? cleanText(item.summary).slice(0, 500) : '';
+/**
+ * `decoded`: the collector's text is already decoded (cheerio's is), so
+ * decoding again would turn a literal "&lt;" in the page's text into "<".
+ */
+export function normalizeItem(item: NewsItem, { decoded = false }: { decoded?: boolean } = {}): NewsItem {
+  const clean = decoded ? collapseText : cleanText;
+  const summary = item.summary ? cutText(clean(item.summary), 500) : '';
   return {
     ...item,
-    title: cleanText(item.title) || 'Untitled',
+    title: clean(item.title) || 'Untitled',
     summary: summary || undefined,
     url: stripTrackingParams(item.url.trim()),
   };

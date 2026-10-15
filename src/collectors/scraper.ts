@@ -6,11 +6,12 @@
  * same scraper and the results are merged by URL.
  */
 
+import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import { createLogger } from '../utils/logger.js';
 import { filterRecentItems } from '../utils/date-filter.js';
 import { fetchText } from '../utils/http.js';
-import { cleanText } from '../utils/normalize.js';
+import { collapseText } from '../utils/normalize.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 const log = createLogger('scraper');
@@ -65,21 +66,35 @@ export async function collectHTMLScrape(source: SourceConfig): Promise<NewsItem[
     .sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? ''))
     .slice(0, maxItems);
 
-  const recent = filterRecentItems(result);
-
-  if (scraper.enrich) {
-    const enrich = scraper.enrich;
-    for (let i = 0; i < recent.length; i += ENRICH_CONCURRENCY) {
-      await Promise.all(
-        recent.slice(i, i + ENRICH_CONCURRENCY).map((item) =>
-          enrich(item).catch((err) => log.warn(`Could not read ${item.url}: ${(err as Error).message}`)),
-        ),
-      );
-    }
-  }
+  const recent = scraper.enrich ? await enrichRecent(result, scraper.enrich) : filterRecentItems(result);
 
   log.info(`Collected ${recent.length} items from ${source.name} (${result.length - recent.length} filtered by date)`);
   return recent;
+}
+
+/**
+ * A listing date is a calendar day, parsed as midnight UTC. The real publish
+ * time is some time that day where the publisher is: in US Pacific time, up to
+ * 32 hours after midnight UTC. Two days covers it.
+ */
+const LISTING_DATE_SLACK_MS = 2 * 24 * 60 * 60 * 1000;
+
+/**
+ * Enrich, then apply the 7-day filter to the exact times enrichment found.
+ * Filtering on the listing date first would drop an article from seven days
+ * ago that is still inside the window by its real time. Items that can't be
+ * read, or have no exact time, keep the listing date and are filtered on it.
+ */
+export async function enrichRecent(items: NewsItem[], enrich: (item: NewsItem) => Promise<void>): Promise<NewsItem[]> {
+  const candidates = filterRecentItems(items, LISTING_DATE_SLACK_MS);
+  for (let i = 0; i < candidates.length; i += ENRICH_CONCURRENCY) {
+    await Promise.all(
+      candidates.slice(i, i + ENRICH_CONCURRENCY).map((item) =>
+        enrich(item).catch((err) => log.warn(`Could not read ${item.url}: ${(err as Error).message}`)),
+      ),
+    );
+  }
+  return filterRecentItems(candidates);
 }
 
 /**
@@ -114,14 +129,14 @@ export function scrapeAnthropicListing(html: string, source: SourceConfig, pageU
     }
     if (!/(^|\.)anthropic\.com$/.test(url.hostname)) return;
 
-    const title = cleanText(
+    const title = collapseText(
       $el.find('h1, h2, h3, h4, h5, h6').first().text() ||
         $el.find('[class*="__title"]').first().text(),
     );
     if (!title) return;
 
-    const summary = cleanText($el.find('p').first().text()) || undefined;
-    const category = cleanText($el.find('[class*="__meta"] span').first().text()) || undefined;
+    const summary = collapseText($el.find('p').first().text()) || undefined;
+    const category = collapseText($el.find('[class*="__meta"] span').first().text()) || undefined;
 
     const seen = byUrl.get(url.href);
     if (seen) {
@@ -157,12 +172,16 @@ const ANTHROPIC_GENERIC_DESCRIPTION = /^Anthropic is an AI safety and research c
  * have no `article:published_time`, so they keep the listing's date.
  */
 async function enrichAnthropicItem(item: NewsItem): Promise<void> {
-  const html = await fetchText(item.url, { headers: { Accept: 'text/html' }, timeoutMs: 15_000 });
+  readAnthropicArticle(item, await fetchText(item.url, { headers: { Accept: 'text/html' }, timeoutMs: 15_000 }));
+}
+
+/** The parsing half of enrichAnthropicItem, given the article page's HTML. */
+export function readAnthropicArticle(item: NewsItem, html: string): void {
   const $ = cheerio.load(html);
 
-  const metaDescription = cleanText($('meta[name="description"]').attr('content') ?? '');
+  const metaDescription = collapseText($('meta[name="description"]').attr('content') ?? '');
   const firstParagraph = $('main p[class*="reading-column"]')
-    .map((_i, p) => cleanText($(p).text()))
+    .map((_i, p) => collapseText($(p).text()))
     .get()
     .find((text) => text.length > 40);
   const summary =
@@ -183,9 +202,17 @@ async function enrichAnthropicItem(item: NewsItem): Promise<void> {
  * bullet becomes its own item: one day can hold a model launch next to SDK
  * fixes (Oct 7, 2026 had eight bullets, one of them Claude Haiku 5.5).
  *
- * A bullet has no anchor of its own. Its URL is the page plus `?entry=` (a
- * slug of the bullet's first words, which keeps the row identity stable when
- * bullets are added to a day) plus `#<day>`, so the link opens at that day.
+ * A bullet has no anchor of its own. Its URL is the page plus `?day=<day>`,
+ * `&entry=<slug>` and `#<day>`, so the link opens at that day. The day is in
+ * the query too because dedup ignores fragments (src/utils/dedup.ts), and the
+ * same opening words on two days are two entries. The entry is a slug of the
+ * bullet's first eight words, so an edit further into the text keeps the row's
+ * identity. If another bullet that day starts with the same eight words, both
+ * get a hash of their full text added: a numbered suffix would follow the
+ * bullets' order, and a bullet added above would take an older one's row.
+ * When a collision first appears, the older bullet moves to its hashed entry
+ * once, leaving one stale row; an edit to a colliding bullet does the same.
+ * Both need two bullets on one day sharing eight opening words, which is rare.
  */
 export function scrapeAnthropicChangelog(html: string, source: SourceConfig, pageUrl: string): NewsItem[] {
   const $ = cheerio.load(html);
@@ -200,7 +227,7 @@ export function scrapeAnthropicChangelog(html: string, source: SourceConfig, pag
     const publishedAt = parseDayDate(`${m[1]} ${m[2]}, ${m[3]}`);
     if (!publishedAt) return;
 
-    const slugsToday = new Set<string>();
+    const bullets: string[] = [];
     $(heading)
       .nextUntil('h1, h2, h3')
       .filter('ul, ol')
@@ -208,25 +235,33 @@ export function scrapeAnthropicChangelog(html: string, source: SourceConfig, pag
       .each((_j, li) => {
         // .text() runs block elements together ("model.Nested detail")
         $(li).find('p, div, ul, ol, li, br').before(' ').after(' ');
-        const text = cleanText($(li).text());
-        if (text.length < 10) return;
-
-        let slug = slugify(text);
-        for (let n = 2; slugsToday.has(slug); n++) slug = `${slugify(text)}-${n}`;
-        slugsToday.add(slug);
-
-        items.push({
-          title: firstSentence(text, 160),
-          url: `${base}?entry=${slug}#${dayId}`,
-          source: source.id,
-          sourceCategory: source.category,
-          score: 0,
-          summary: text.slice(0, 500),
-          tags: source.tags,
-          fetchedAt: now,
-          publishedAt,
-        });
+        const text = collapseText($(li).text());
+        if (text.length >= 10) bullets.push(text);
       });
+
+    const slugCounts = new Map<string, number>();
+    for (const text of bullets) slugCounts.set(slugify(text), (slugCounts.get(slugify(text)) ?? 0) + 1);
+
+    const slugsToday = new Set<string>();
+    for (const text of bullets) {
+      let slug = slugify(text);
+      if (slugCounts.get(slug)! > 1) slug = `${slug}-${createHash('sha256').update(text).digest('hex').slice(0, 8)}`;
+      // Only identical bullets are still equal, and those are interchangeable
+      for (let n = 2, first = slug; slugsToday.has(slug); n++) slug = `${first}-${n}`;
+      slugsToday.add(slug);
+
+      items.push({
+        title: firstSentence(text, 160),
+        url: `${base}?day=${dayId}&entry=${slug}#${dayId}`,
+        source: source.id,
+        sourceCategory: source.category,
+        score: 0,
+        summary: text.slice(0, 500),
+        tags: source.tags,
+        fetchedAt: now,
+        publishedAt,
+      });
+    }
   });
 
   return items;
@@ -300,9 +335,11 @@ export function parseDayDate(text: string): string | undefined {
 /** The first sentence of `text`, cut at a word boundary if longer than `max`. */
 function firstSentence(text: string, max: number): string {
   const sentence = /^(.+?[.!?])(?=\s+[A-Z(`"“]|$)/.exec(text)?.[1] ?? text;
-  if (sentence.length <= max) return sentence;
-  const cut = sentence.slice(0, max);
-  return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : max)}…`;
+  const chars = Array.from(sentence); // code points, so an emoji is never split
+  if (chars.length <= max) return sentence;
+  const cut = chars.slice(0, max - 1).join(''); // room for the ellipsis
+  const space = cut.lastIndexOf(' ');
+  return `${space > 0 ? cut.slice(0, space) : cut}…`;
 }
 
 /** Lowercase slug of the first eight words. */

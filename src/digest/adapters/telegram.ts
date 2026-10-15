@@ -36,10 +36,13 @@ export async function sendTelegramDigest(message: string): Promise<void> {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      // Plain text, no parse_mode: the digest has no markup, and titles are
+      // decoded text from feeds, so "<model>" or "Q&A" must not be read as HTML.
+      // A word joiner after "@" keeps Telegram from making a feed title's
+      // "@username" a mention; it renders the same.
       body: JSON.stringify({
         chat_id: chatId,
-        text: chunks[i],
-        parse_mode: 'HTML',
+        text: chunks[i].replace(/@(?=\w)/g, '@\u2060'),
       }),
     });
 

@@ -16,6 +16,13 @@ on:
 permissions:
   contents: read
 
+# One run at a time. The upsert reads each row's stored metadata, merges and
+# writes it back; two overlapping runs could each write back a stale copy.
+# A run dispatched while one is in progress waits for it.
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
 jobs:
   collect:
     runs-on: ubuntu-latest

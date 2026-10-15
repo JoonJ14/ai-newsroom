@@ -80,7 +80,8 @@ export async function collectHackerNews(source: SourceConfig): Promise<NewsItem[
         source: source.id,
         sourceCategory: source.category,
         score: s.score ?? 0,
-        summary: s.text ? htmlToText(s.text).slice(0, 500) || undefined : undefined,
+        // Cut to 500 by normalizeItem, after decoding: "&amp;" is one character
+        summary: s.text ? htmlToText(s.text) || undefined : undefined,
         authors: s.by,
         tags: source.tags,
         fetchedAt: now,
@@ -138,7 +139,7 @@ export async function collectHackerNewsAlgolia(source: SourceConfig): Promise<Ne
       source: source.id,
       sourceCategory: source.category,
       score: hit.points ?? 0,
-      summary: hit.story_text ? htmlToText(hit.story_text).slice(0, 500) || undefined : undefined,
+      summary: hit.story_text ? htmlToText(hit.story_text) || undefined : undefined,
       authors: hit.author,
       tags: source.tags,
       fetchedAt: now,
