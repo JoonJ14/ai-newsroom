@@ -12,6 +12,28 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**Collection (ranking rebuild, step 1 of 4)**
+
+- **Three press sources** for policy, business and general AI coverage, all
+  tier 2, `industry_news`, keyword filter on: **Ars Technica AI**, **The
+  Guardian AI** and **WIRED AI**. AP News and Axios answer 403 to feed requests,
+  and Reuters has no public RSS, so those were not added.
+- **Anthropic News also reads `/research`** (`extraUrls` in `sources.yaml`, a new
+  optional `html_scrape` field).
+- **Cross-source coverage survives dedup.** One row per story is still stored,
+  but it lists the other copies in `metadata.coveredBy: [{source, url}]` and
+  keeps their engagement: an HN thread's `hnPoints`, `hnId`, `hnLink` and
+  `commentCount` on a press article, a paper's HF `upvotes` on its arXiv row.
+  The upsert merges these with the stored row, so a later run that no longer
+  sees the other copy doesn't erase them.
+- **Raw engagement kept in metadata:** HN `hnPoints` (the `score` field is
+  overwritten by the relevance score), Dev.to `reactions`, and for HF papers
+  `upvotes`, `numComments`, `githubRepo`/`githubStars`, `projectPage` and the
+  submitting organization.
+- **`npm run test:collect`** (86 assertions, no network) and a CI step for it.
+
+**Scheduling and CI**
+
 - **Supabase Cron scheduling (`supabase/migrations/003_schedule_triggers.sql`).**
   GitHub's `schedule:` trigger was delivering the 11:45 AM ET digest at
   2:30–6:00 PM ET. `pg_cron` now fires hourly and gates on the America/New_York
@@ -53,6 +75,96 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   heading fallback, and the `-32602` vs `-32603` distinction.
 
 ### Fixed
+
+**Collection (ranking rebuild, step 1 of 4)**
+
+- **`npm run collect` sat for 4–10 minutes after "Done"**, and 6 of 33 runs
+  hit the job's 10-minute timeout, which also skipped the cleanup step.
+  rss-parser's `parseURL` never reads or destroys the response on a redirect
+  or a non-2xx status, and never aborts on its timeout, so the socket held the
+  process open until the server dropped it (DeepMind's 404, VentureBeat's 429
+  and Google Research's redirect did this on every run). Feeds are now fetched
+  with `fetch` and only parsed by rss-parser. All collector HTTP goes through
+  `src/utils/http.ts`: a deadline on every request, and every response read or
+  cancelled. A 15 s backstop exits and logs what is still open, should a new
+  leak appear.
+- **Anthropic News missed model launches.** It followed only `/news/` links and
+  the first five of them, and the Claude Haiku 5.5 launch is linked at
+  `/claude-haiku-5-5`. It now takes every dated card linking into anthropic.com,
+  on `/news` and `/research`. The featured card no longer yields a row titled
+  "Announcements". Each recent item's own page supplies a summary and the exact
+  publish time; the listing had a summary for 2 of 23 rows. The 7-day filter
+  runs on that exact time, so an article from seven days ago is not dropped
+  because its listing date reads as midnight UTC.
+- **Anthropic changelog**: the old URL redirects to
+  `platform.claude.com/docs/en/release-notes/overview` and parsed to nothing
+  since August. New parser, one item per bullet (one day held a model launch
+  among seven SDK notes).
+- **Google DeepMind Blog** (404) and **Google Research Blog** (dead since 2024):
+  new feed URLs.
+- **Meta**: `ai.meta.com/blog/` server-renders only posts up to July, so the
+  scraper returned the same five undated posts. `meta_ai_blog` is now Meta's
+  newsroom AI-tag feed, renamed "Meta Newsroom (AI)"; it carried Muse Wonder.
+- **MIT Technology Review** uses its AI topic feed. The whole-site feed lost
+  about half its items to the keyword filter.
+- **HF Daily Papers upvotes were always 0**: the collector read `numLikes`; the
+  API field is `paper.upvotes`. Papers now feed real upvotes into the existing
+  score (note: with `scoring.ts:47`, 0 upvotes still scores above 1–49).
+- **HF Spaces field mapping** (source disabled, code kept correct): the listing
+  has no `lastModified` or `cardData`, so every Space was undated and scored as
+  new forever. `publishedAt` is now `createdAt`.
+- **HN Algolia returned 20 hits** whatever `maxItems` said; `hitsPerPage` is now
+  set from it. Text posts' HTML `story_text` becomes plain text.
+- **Titles and summaries**: HTML entities decoded (43 Verge titles had
+  `&#8217;`), newlines collapsed. **URLs**: `utm_*` parameters stripped before
+  the `(url, source)` identity is formed (203 InfoQ rows had them).
+- **Dedup merged unrelated items**: its URL comparison dropped the query string,
+  so every HN text post (`item?id=…`) matched every other. The query and
+  fragment now count; scheme, `www.` and a trailing slash still don't.
+- **GitHub release sources** get the workflow's `GITHUB_TOKEN` (`collect.yml`).
+  Unauthenticated calls hit the 60/hour limit on 2026-10-06.
+- **Migration 003 can be re-run.** pg_cron's `create extension` and grants now
+  run only when the extension is missing; on a second run they tripped
+  Supabase's pg_cron access hook ("dependent privileges exist").
+- After review (Codex):
+  - The upsert merges stored metadata. If that read fails, or hits PostgREST's
+    1,000-row cap, the run now only inserts new items, rather than overwrite
+    existing rows and erase their coverage. `collect.yml` runs one at a time,
+    so overlapping runs can't write back stale copies.
+  - Collector responses are capped at 10 MB, cancelled past that instead of
+    buffered.
+  - Decoded titles are plain text in every digest adapter: Telegram no longer
+    parses them as HTML ("<model>" failed the send), Discord sends no mentions
+    and escapes its markup on title lines (no masked links, spoilers or
+    emphasis), Slack sends with `mrkdwn: false` and `<`, `>`, `&` escaped,
+    and Telegram gets a word joiner after `@` so a title can't mention anyone. Every item's text is decoded exactly once: HN
+    text and cheerio's (already decoded) scraped text were decoded twice. HN
+    summaries are cut to 500 characters after decoding, not before. No cut
+    leaves half an emoji (PostgreSQL rejects a lone surrogate, failing the
+    whole upsert batch), and lone surrogates from feeds are dropped.
+  - `utm_` parameters are also stripped when percent-encoded (`utm%5Fsource`). Control characters are dropped
+    from titles and summaries (a decoded `&#27;` is a terminal escape).
+  - The metadata lookup quotes and escapes every URL itself: supabase-js's
+    `.in()` doesn't escape `"` or `\`, so one odd feed URL failed the lookup.
+  - Changelog entries that share their first eight words get a hash of their
+    text, not a number by position, so an entry added above can't take an
+    older entry's row.
+  - Dedup ignores a URL's fragment again (`story#comments` is `story`), except
+    app routes (`#/…`). Changelog URLs therefore carry the day in the query
+    (`?day=…&entry=…#…`): the same opening words on two days are two entries.
+  - Dedup groups copies into stories, so a copy matching one story by URL and
+    another by title joins them, and the kept row carries the story's biggest
+    HN thread even after its absorber was replaced. Titles merge copies from
+    different sources only, and no story ever holds two different URLs from
+    one source: within a source, different URLs are different items (two
+    changelog entries for two regions were 0.83 alike). Copies of one
+    `(url, source)` row are merged first, so an upsert batch never holds a row
+    twice; then every URL match, then titles, so a similar title can't claim
+    a copy whose exact URL belongs to another story.
+  - A failed upsert batch now fails the run (exit code 1), after every batch
+    has been tried. Before, lost items still gave a green run.
+  - The orchestrator stops starting sources after 5 minutes, so a broad outage
+    can't run the 10-minute job out before anything is stored.
 
 **MCP server — availability**
 
@@ -135,6 +247,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+**Collection (ranking rebuild, step 1 of 4)**
+
+- **Disabled, with the reason in `sources.yaml`:** the five Reddit sources
+  (every request from GitHub Actions got `403 Blocked`; no row was ever stored),
+  HuggingFace Trending Spaces (demos and LoRAs, pinned at 93 by the date bug),
+  and VentureBeat AI (a Vercel bot challenge answers 429 to every feed URL). 30
+  of 38 sources are enabled. Reddit may return via its official API.
+- One shared User-Agent for collector requests, naming the project and its URL.
+
+**Scheduling and CI**
+
 - **`collect.yml` / `digest.yml`**: the `schedule:` blocks are commented out
   (not deleted; forks can uncomment them to fall back to GitHub's scheduler).
   Runs now arrive via `workflow_dispatch`. Both workflows are pinned to
@@ -159,6 +282,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- README and CLAUDE.md: the four-step ranking rebuild, the Reddit roadmap note,
+  source count 38 (30 enabled) with the disabled ones and why.
+  `docs/scheduling.md`: after migration 003's first run, apply later changes by
+  running only the changed functions or jobs.
 - README: new "Status & roadmap" section (scheduling change, deferred
   full-Supabase move and its costs, ranking rebuild next). The digest time now
   reads 9:00 AM ET. The fork instructions explain that a fork needs either the

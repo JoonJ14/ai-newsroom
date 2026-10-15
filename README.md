@@ -2,7 +2,7 @@
 
 > Keeping up with AI news is a full-time job. Let your AI do it instead.
 
-**AI Newsroom** is a real-time AI/tech news aggregator that scrapes 35 sources every 6 hours and makes everything available via MCP (Model Context Protocol). Connect it to Claude Code, Claude Desktop, or any MCP client — one command, no install, no auth.
+**AI Newsroom** is a real-time AI/tech news aggregator that collects from 30 sources every 6 hours and makes everything available via MCP (Model Context Protocol). Connect it to Claude Code, Claude Desktop, or any MCP client — one command, no install, no auth.
 
 Ask Claude *"what's new in AI today?"* and get a real answer, not stale training data.
 
@@ -14,12 +14,17 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 
 ## Status & roadmap
 
+- **Ranking rebuild in progress, step 1 of 4: collection fixes.** The four steps, each its own PR:
+  1. Fix collection: broken and dead sources, title clean-up, cross-source coverage in dedup (this step).
+  2. An AI editor that judges each item once, at collection time, and stores the judgment.
+  3. A new digest layout, with a preview mode.
+  4. The MCP server reads the stored judgments, then is redeployed.
+- **Reddit is disabled.** It may return later via Reddit's official API, which needs a registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - **Recent change (Oct 2026):** scheduling moved to **Supabase Cron**. GitHub's own scheduler was delivering the daily digest 3–6 hours late. Supabase now starts the GitHub Actions runs at fixed times, and the digest targets **9:00 AM ET** year-round. The runs themselves still happen on GitHub Actions. Details: [`docs/scheduling.md`](docs/scheduling.md).
 - **Under consideration:** moving collectors and digest entirely into Supabase Edge Functions. We're running the hybrid setup first and will revisit if having two platforms causes trouble. That move has real costs:
-  - Edge Functions have CPU-time and wall-clock limits that a 35-source scrape would have to fit within.
+  - Edge Functions have CPU-time and wall-clock limits that a 30-source scrape would have to fit within.
   - Some sources may block requests from cloud-provider IPs.
   - Deploys would no longer happen automatically when a PR merges to `main`.
-- **In progress next:** a rebuild of ranking and editorial direction.
 
 ---
 
@@ -27,9 +32,9 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 
 | Problem | AI Newsroom |
 |---------|-------------|
-| Claude doesn't know what happened after training cutoff | 35 sources scraped every 6h, always current |
+| Claude doesn't know what happened after training cutoff | 30 sources collected every 6h, always current |
 | Asking Claude to search is slow and shallow | Pre-cached in DB, MCP returns instantly |
-| Too many sources to check manually | Aggregated from blogs, Reddit, HN, ArXiv, GitHub, HuggingFace |
+| Too many sources to check manually | Aggregated from AI labs, the tech press, HN, ArXiv, GitHub, HuggingFace |
 | Hard to know what's actually important | Relevance scoring + AI filtering separates signal from noise |
 | Miss weekend announcements on Monday | 90-day retention — nothing gets lost |
 
@@ -145,7 +150,7 @@ Once connected, just talk to Claude naturally. Here are some examples:
 | Specific company news | "Any Anthropic announcements this week?" |
 | Search for a topic | "Search for news about MCP" |
 | Catch up after time off | "What did I miss since Friday?" |
-| Deep dive on trending | "Show me what's hot on HackerNews and Reddit" |
+| Deep dive on trending | "Show me what's hot on HackerNews" |
 | Research papers | "Any interesting AI papers published recently?" |
 | Read a specific paper | "What's arXiv 2501.12948 about?" |
 | Try a repo you just saw | "How do I get started with anthropics/claude-code?" |
@@ -298,26 +303,31 @@ This only works on Mac computers with the Messages app signed in.
 
 ---
 
-## Sources (35)
+## Sources (38)
 
 Section headings match the `category` value you can filter on with `get_trending`.
+30 of the 38 are enabled; the 8 marked * are defined but disabled (reasons below).
 
 ### Company Blogs & Official Channels — `company_blog` (11)
-Anthropic News, Anthropic Developer Changelog, OpenAI News, Google AI Blog, Google DeepMind Blog, Meta AI Blog, NVIDIA Developer Blog, xAI News*, Andrej Karpathy's Blog, Sam Altman, Peter Steinberger
+Anthropic News (news and research pages), Anthropic Developer Changelog, OpenAI News, Google AI Blog, Google DeepMind Blog, Meta Newsroom (AI), NVIDIA Developer Blog, xAI News*, Andrej Karpathy's Blog, Sam Altman, Peter Steinberger
 
 ### Community Signal — `community` (9)
-Hacker News AI Stories, Show HN (24h), r/ClaudeAI, r/LocalLLaMA, r/MachineLearning, r/OpenAI, r/artificial, HuggingFace Trending Spaces, Dev.to AI Tag
+Hacker News AI Stories, Show HN (24h), r/ClaudeAI*, r/LocalLLaMA*, r/MachineLearning*, r/OpenAI*, r/artificial*, HuggingFace Trending Spaces*, Dev.to AI Tag
 
 ### Research — `research` (5)
 ArXiv cs.AI, ArXiv cs.LG (Machine Learning), ArXiv cs.CV (Computer Vision), HuggingFace Daily Papers, Google Research Blog
 
-### Industry News — `industry_news` (6)
-TechCrunch AI, VentureBeat AI, The Verge AI, MIT Technology Review, InfoQ AI & ML, The New Stack AI
+### Industry News — `industry_news` (9)
+TechCrunch AI, VentureBeat AI*, The Verge AI, MIT Technology Review, Ars Technica AI, The Guardian AI, WIRED AI, InfoQ AI & ML, The New Stack AI
 
 ### GitHub — `github` (4)
 GitHub Trending Repositories, Claude Code GitHub Releases (`anthropics/claude-code`), OpenAI Codex CLI Releases (`openai/codex`), vLLM Releases (`vllm-project/vllm`)
 
-<sub>\* xAI News is defined but disabled by default — x.ai returns 403 to plain HTTP scraping (Cloudflare). 34 of the 35 sources are enabled out of the box.</sub>
+<sub>\* Disabled, with the reason next to each in `config/sources.yaml`:
+**Reddit** (5): every request from GitHub Actions gets `403 Blocked`. It may return via Reddit's official API, which needs a registered Reddit app and its own credentials.
+**HuggingFace Trending Spaces**: mostly demos and LoRAs rather than news.
+**VentureBeat AI**: its feeds answer every request with a bot challenge (HTTP 429).
+**xAI News**: x.ai returns 403 to plain HTTP scraping (Cloudflare).</sub>
 
 ---
 
@@ -346,10 +356,10 @@ All source configuration lives in `config/sources.yaml`. You can customize what 
 
 Find the source in the file and change `enabled: true` to `enabled: false`:
 ```yaml
-- id: reddit_artificial
-  name: r/artificial
-  type: reddit
-  url: https://www.reddit.com/r/artificial/hot.json
+- id: devto_ai
+  name: Dev.to AI Tag
+  type: json_api
+  url: https://dev.to/api/articles?tag=ai&top=1
   category: community
   enabled: false  # changed from true — this source will be skipped
 ```
@@ -423,8 +433,8 @@ npm run collect
 ┌─────────────────────────────────────────────────────────┐
 │  GitHub Actions (every 6h)                              │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
-│  │ RSS      │ │ Reddit   │ │ GitHub   │ │ HN API   │   │
-│  │ Collector│ │ Collector│ │ Collector│ │ Collector│   │
+│  │ RSS      │ │ HTML     │ │ GitHub   │ │ HN API   │   │
+│  │ Collector│ │ Scraper  │ │ Collector│ │ Collector│   │
 │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘   │
 │       └─────────────┴────────────┴─────────────┘        │
 │                         │ write                         │
@@ -478,7 +488,7 @@ This means no new items were collected since the last run. The collectors run ev
 You need a `.env` file in the project root with your Supabase credentials. See the Self-Hosting section above.
 
 **"Some sources show 0 items"**
-This is normal. Some sources (like Google Research Blog) publish infrequently. Others (like Reddit) may occasionally return errors due to rate limiting. The pipeline is designed to continue even when individual sources fail.
+This is normal. Only items from the last 7 days are kept, and some sources publish rarely: Andrej Karpathy's Blog, Sam Altman and Peter Steinberger often go months between posts. A source that errors is logged and skipped; the rest of the run continues.
 
 **"My client only lists 6 tools, not 8"**
 The tool list comes from the deployed Edge Function, not from this repo. After changing anything under `supabase/functions/`, redeploy with `npx supabase functions deploy mcp` — until then the live endpoint keeps serving the previous build. Verify with:

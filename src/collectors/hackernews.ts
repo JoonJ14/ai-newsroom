@@ -6,6 +6,8 @@
 
 import { createLogger } from '../utils/logger.js';
 import { filterRecentItems } from '../utils/date-filter.js';
+import { fetchJson } from '../utils/http.js';
+import { htmlToText } from '../utils/normalize.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 const log = createLogger('hackernews');
@@ -46,10 +48,7 @@ export async function collectHackerNews(source: SourceConfig): Promise<NewsItem[
   log.info(`Fetching HN top stories: ${source.name}`);
 
   try {
-    const res = await fetch(source.url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const ids = (await res.json()) as number[];
+    const ids = await fetchJson<number[]>(source.url);
     const maxItems = source.maxItems ?? 30;
     const topIds = ids.slice(0, maxItems);
 
@@ -62,8 +61,7 @@ export async function collectHackerNews(source: SourceConfig): Promise<NewsItem[
       const results = await Promise.all(
         batch.map(async (id) => {
           try {
-            const r = await fetch(`${HN_ITEM_URL}/${id}.json`);
-            return r.ok ? ((await r.json()) as HNItem) : null;
+            return await fetchJson<HNItem>(`${HN_ITEM_URL}/${id}.json`);
           } catch {
             return null;
           }
@@ -82,13 +80,15 @@ export async function collectHackerNews(source: SourceConfig): Promise<NewsItem[
         source: source.id,
         sourceCategory: source.category,
         score: s.score ?? 0,
-        summary: s.text?.slice(0, 500) || undefined,
+        // Cut to 500 by normalizeItem, after decoding: "&amp;" is one character
+        summary: s.text ? htmlToText(s.text) || undefined : undefined,
         authors: s.by,
         tags: source.tags,
         fetchedAt: now,
         publishedAt: s.time ? new Date(s.time * 1000).toISOString() : undefined,
         metadata: {
           hnId: s.id,
+          hnPoints: s.score ?? 0,
           commentCount: s.descendants ?? 0,
           hnLink: `https://news.ycombinator.com/item?id=${s.id}`,
         },
@@ -104,6 +104,15 @@ export async function collectHackerNews(source: SourceConfig): Promise<NewsItem[
 }
 
 /**
+ * Algolia returns 20 hits unless asked for more, whatever `maxItems` says.
+ * An explicit `hitsPerPage` in the configured URL wins.
+ */
+export function withHitsPerPage(url: string, maxItems: number): string {
+  if (/[?&]hitsPerPage=/.test(url)) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}hitsPerPage=${maxItems}`;
+}
+
+/**
  * HN Algolia collector — for search-based queries like Show HN.
  */
 export async function collectHackerNewsAlgolia(source: SourceConfig): Promise<NewsItem[]> {
@@ -113,17 +122,16 @@ export async function collectHackerNewsAlgolia(source: SourceConfig): Promise<Ne
     // Replace NOW_MINUS_*H placeholders with actual timestamps
     const oneDayAgo = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
     const twoDaysAgo = Math.floor((Date.now() - 48 * 60 * 60 * 1000) / 1000);
-    const url = source.url
-      .replace('NOW_MINUS_24H', String(oneDayAgo))
-      .replace('NOW_MINUS_48H', String(twoDaysAgo));
-
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data = (await res.json()) as AlgoliaResponse;
-    const now = new Date().toISOString();
-
     const maxItems = source.maxItems ?? 30;
+    const url = withHitsPerPage(
+      source.url
+        .replace('NOW_MINUS_24H', String(oneDayAgo))
+        .replace('NOW_MINUS_48H', String(twoDaysAgo)),
+      maxItems,
+    );
+
+    const data = await fetchJson<AlgoliaResponse>(url);
+    const now = new Date().toISOString();
 
     const items: NewsItem[] = data.hits.slice(0, maxItems).map((hit) => ({
       title: hit.title,
@@ -131,13 +139,16 @@ export async function collectHackerNewsAlgolia(source: SourceConfig): Promise<Ne
       source: source.id,
       sourceCategory: source.category,
       score: hit.points ?? 0,
-      summary: hit.story_text?.slice(0, 500) || undefined,
+      summary: hit.story_text ? htmlToText(hit.story_text) || undefined : undefined,
       authors: hit.author,
       tags: source.tags,
       fetchedAt: now,
       publishedAt: hit.created_at,
       metadata: {
         hnId: hit.objectID,
+        // `score` is replaced by the relevance score before storage, so the raw
+        // points are kept here.
+        hnPoints: hit.points ?? 0,
         commentCount: hit.num_comments ?? 0,
         hnLink: `https://news.ycombinator.com/item?id=${hit.objectID}`,
       },

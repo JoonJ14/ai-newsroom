@@ -7,6 +7,7 @@
 import * as cheerio from 'cheerio';
 import { createLogger } from '../utils/logger.js';
 import { filterRecentItems } from '../utils/date-filter.js';
+import { fetchJson, fetchText } from '../utils/http.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 const log = createLogger('github');
@@ -31,19 +32,17 @@ export async function collectGitHubReleases(source: SourceConfig): Promise<NewsI
   try {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'ai-newsroom/0.1',
     };
 
-    // Only attach GITHUB_TOKEN for requests to GitHub's API
+    // Only attach GITHUB_TOKEN for requests to GitHub's API. collect.yml passes
+    // the workflow's built-in token: unauthenticated calls share 60/hour per
+    // runner IP, and all three release sources hit that limit on 2026-10-06.
     const url = new URL(source.url);
     if (process.env.GITHUB_TOKEN && url.hostname === 'api.github.com') {
       headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
     }
 
-    const res = await fetch(source.url, { headers });
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-    const releases = (await res.json()) as GitHubRelease[];
+    const releases = await fetchJson<GitHubRelease[]>(source.url, { headers });
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 10;
 
@@ -90,16 +89,7 @@ export async function collectGitHubTrending(source: SourceConfig): Promise<NewsI
   log.info(`Fetching GitHub trending: ${source.name}`);
 
   try {
-    const res = await fetch(source.url, {
-      headers: {
-        'User-Agent': 'ai-newsroom/0.1',
-        Accept: 'text/html',
-      },
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-    const html = await res.text();
+    const html = await fetchText(source.url, { headers: { Accept: 'text/html' } });
     const $ = cheerio.load(html);
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 25;

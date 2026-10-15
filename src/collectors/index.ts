@@ -24,9 +24,19 @@ import { computeRelevanceScore } from '../utils/scoring.js';
 import { deduplicateItems } from '../utils/dedup.js';
 import { filterRecentItems } from '../utils/date-filter.js';
 import { isAIRelevant } from '../utils/relevance-filter.js';
+import { fetchJson } from '../utils/http.js';
+import { normalizeItem } from '../utils/normalize.js';
 import type { NewsItem, SourceConfig, SourcesConfig } from './types.js';
 
 const log = createLogger('orchestrator');
+
+/**
+ * The Actions job has 10 minutes in all. Each request has a deadline, but in a
+ * broad outage every source could run to its deadline one after another, and
+ * the job would be killed before anything was stored. Once this budget is
+ * spent, the remaining sources are skipped and what was collected is stored.
+ */
+const COLLECTION_BUDGET_MS = 5 * 60_000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -91,16 +101,7 @@ async function collectDevTo(source: SourceConfig): Promise<NewsItem[]> {
   log.info(`Fetching Dev.to: ${source.name}`);
 
   try {
-    const res = await fetch(source.url, {
-      headers: {
-        'User-Agent': 'ai-newsroom/0.1',
-        Accept: 'application/json',
-      },
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-    const articles = (await res.json()) as Array<{
+    const articles = await fetchJson<Array<{
       title: string;
       url: string;
       description?: string;
@@ -108,7 +109,7 @@ async function collectDevTo(source: SourceConfig): Promise<NewsItem[]> {
       public_reactions_count?: number;
       published_at?: string;
       tag_list?: string[];
-    }>;
+    }>>(source.url);
 
     const now = new Date().toISOString();
     const maxItems = source.maxItems ?? 15;
@@ -124,6 +125,8 @@ async function collectDevTo(source: SourceConfig): Promise<NewsItem[]> {
       tags: source.tags,
       fetchedAt: now,
       publishedAt: a.published_at,
+      // `score` is replaced by the relevance score before storage
+      metadata: { reactions: a.public_reactions_count ?? 0 },
     }));
 
     const recent = filterRecentItems(items);
@@ -167,8 +170,20 @@ async function main() {
   const results: { source: string; count: number; error?: string }[] = [];
 
   for (const source of sources) {
+    if (Date.now() - startTime >= COLLECTION_BUDGET_MS) {
+      const msg = 'skipped, collection time budget used up';
+      log.error(`Source ${source.id} ${msg}`);
+      results.push({ source: source.id, count: 0, error: msg });
+      continue;
+    }
     try {
-      const items = await collectSource(source);
+      // Entities, whitespace and tracking parameters, for every collector.
+      // These collectors read pages with cheerio, which has already decoded the
+      // text. Feed text is decoded again on purpose: feeds such as The Verge's
+      // encode entities twice, so titles still carry "&#8217;" after XML
+      // parsing. A literal entity in a feed title looks the same and is rarer.
+      const decoded = source.type === 'html_scrape' || source.type === 'github_trending';
+      const items = (await collectSource(source)).map((item) => normalizeItem(item, { decoded }));
       allItems.push(...items);
       results.push({ source: source.id, count: items.length });
     } catch (err) {
@@ -259,6 +274,8 @@ async function main() {
       log.info(`Upserted ${upserted} items to database`);
     } catch (err) {
       log.error('Failed to upsert items to database', (err as Error).message);
+      // Fail the Actions run: lost items must not pass as a green run
+      process.exitCode = 1;
     }
   }
 
@@ -274,7 +291,18 @@ async function main() {
   log.info(`Done in ${elapsed}s`);
 }
 
-main().catch((err) => {
-  log.error('Fatal error', err);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Backstop only. Every HTTP response is read or cancelled (src/utils/http.ts),
+    // so nothing should keep the process alive after "Done". If something does,
+    // say what it is and exit, rather than hold the Actions job open until its
+    // timeout. unref() lets a clean run exit without waiting for this timer.
+    setTimeout(() => {
+      log.warn(`Still running 15s after Done. Open resources: ${process.getActiveResourcesInfo().join(', ')}. Exiting.`);
+      process.exit(); // keeps process.exitCode, set if the upsert failed
+    }, 15_000).unref();
+  })
+  .catch((err) => {
+    log.error('Fatal error', err);
+    process.exit(1);
+  });

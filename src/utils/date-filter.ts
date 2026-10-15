@@ -7,8 +7,12 @@ import type { NewsItem } from '../collectors/types.js';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function filterRecentItems(items: NewsItem[]): NewsItem[] {
-  const cutoff = Date.now() - SEVEN_DAYS_MS;
+/**
+ * `slackMs` widens the window. Scrapers that only know a calendar date use it
+ * to pick which items are worth reading for an exact time (src/collectors/scraper.ts).
+ */
+export function filterRecentItems(items: NewsItem[], slackMs = 0): NewsItem[] {
+  const cutoff = Date.now() - SEVEN_DAYS_MS - slackMs;
 
   return items.filter((item) => {
     if (!item.publishedAt) return true; // no date = assume recent

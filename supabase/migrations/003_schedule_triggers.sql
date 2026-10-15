@@ -45,17 +45,32 @@
 --   could call to trigger workflow runs.
 --
 -- RE-RUNNING
---   Safe. Extensions use IF NOT EXISTS, functions use CREATE OR REPLACE, and
---   cron.schedule() with an existing job name overwrites that job (upsert)
---   rather than adding a duplicate.
+--   The whole file is meant to re-run cleanly: pg_cron's one-time setup is
+--   skipped once the extension exists (section 1), functions use CREATE OR
+--   REPLACE, and cron.schedule() with an existing job name overwrites that
+--   job (upsert) rather than adding a duplicate. Still, after the first run,
+--   apply a later change by running only the statements that changed (one
+--   function, or one cron.schedule call). See docs/scheduling.md.
 
 -- ---------------------------------------------------------------------------
 -- 1. Extensions (as documented at supabase.com/docs/guides/cron/install and
 --    supabase.com/docs/guides/database/extensions/pg_net)
+--
+--    pg_cron's setup runs only when the extension is missing. Once pg_cron
+--    exists, re-running the `create extension` and the two grants trips
+--    Supabase's own pg_cron access hook with "dependent privileges exist",
+--    which aborted the whole file on a second run. Supabase's install docs
+--    still list both grants for a fresh install, so they stay, guarded.
 -- ---------------------------------------------------------------------------
-create extension if not exists pg_cron with schema pg_catalog;
-grant usage on schema cron to postgres;
-grant all privileges on all tables in schema cron to postgres;
+do $$
+begin
+  if not exists (select 1 from pg_extension where extname = 'pg_cron') then
+    create extension pg_cron with schema pg_catalog;
+    grant usage on schema cron to postgres;
+    grant all privileges on all tables in schema cron to postgres;
+  end if;
+end
+$$;
 
 -- pg_net registers in `extensions` but creates and uses its own `net` schema.
 create extension if not exists pg_net with schema extensions;
