@@ -17,6 +17,7 @@ import { buildSlottedDisplay } from '../utils/slots.js';
 import type { NewsItem, SourceCategory, SourceConfig, SourcesConfig } from '../collectors/types.js';
 import { formatDigestMessage } from './format.js';
 import { loadDigestConfig } from './config.js';
+import { digestSlotOptions } from './slot-options.js';
 import { sendDiscordDigest } from './adapters/discord.js';
 import { sendTelegramDigest } from './adapters/telegram.js';
 import { sendSlackDigest } from './adapters/slack.js';
@@ -166,30 +167,7 @@ async function main() {
   log.info(`Fetched ${items.length} new items since last digest`);
 
   // Build slotted display with tighter caps for human-readable digest
-  const allSourceConfigs = loadSourceConfigs();
-  const sourceDigestCaps = new Map<string, number>();
-  for (const src of allSourceConfigs) {
-    if (src.digestMaxItems != null) {
-      sourceDigestCaps.set(src.id, src.digestMaxItems);
-    }
-  }
-
-  const display = buildSlottedDisplay(items, {
-    topStoryLimit: 1,
-    todayLimit: 5,
-    todayMaxPerSource: 2,
-    officialLimit: 5,
-    officialMaxPerSource: 2,
-    fieldLimit: 3,
-    fieldMaxPerSource: 1,
-    communityLimit: 3,
-    communityMaxPerSource: 2,
-    researchLimit: 3,
-    researchMaxPerSource: 2,
-    industryLimit: 2,
-    industryMaxPerSource: 1,
-    sourceDigestCaps,
-  });
+  const display = buildSlottedDisplay(items, digestSlotOptions(loadSourceConfigs()));
 
   // Optional AI summary
   const summary = await generateAISummary(items);
