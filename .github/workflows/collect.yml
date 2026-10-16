@@ -57,3 +57,53 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: npm run cleanup
+
+  # The AI editor judges what collection just stored (src/editor/, docs/editor.md).
+  # Its own job, so that only it can request an OIDC token, and so that it can
+  # fail without failing collection: `continue-on-error` keeps the run green, and
+  # anything left unjudged is retried on the next run. The digest doesn't read
+  # the judgments yet (ranking rebuild step 3).
+  editor:
+    needs: collect
+    # Also after a failed collect: earlier runs' items may still need judging
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read
+      # Workload identity federation: lets the job ask GitHub for a short-lived
+      # OIDC token, which Anthropic exchanges for an API token. No write access.
+      id-token: write
+    # Shared with editor-backfill.yml, so two editors never judge the same rows
+    concurrency:
+      group: editor
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Judge new items
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # Federation IDs from the Console wizard, as repository variables (not
+          # secrets: they identify, they don't authenticate). While they are
+          # unset, the editor falls back to the ANTHROPIC_API_KEY secret.
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EDITOR_MODEL: ${{ vars.EDITOR_MODEL }}
+        run: npm run editor
