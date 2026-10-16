@@ -205,6 +205,19 @@ function fakeCall(prompts: string[], fail: (n: number) => Partial<BatchResponse>
   check('tokens summed', res.usage.inputTokens, 200);
 }
 {
+  // story-two is known but cut from the context by the cap (contextStories: 1)
+  const items = [item('1', 'techcrunch_ai', 'story-two'), item('2', 'theverge_ai', 'x'), item('3', 'openai_news', 'y')];
+  const prompts: string[] = [];
+  await runEditor({
+    items, rubric: RUBRIC, sourceNames: NAMES, caps: { ...CAPS, contextStories: 1 }, now: new Date(), call: fakeCall(prompts),
+    knownStories: [
+      { key: 'big-story', headline: 'Big', importance: 9, lastSeen: '2026-10-01T00:00:00Z' },
+      { key: 'story-two', headline: 'Small', importance: 2, lastSeen: '2026-10-01T00:00:00Z' },
+    ],
+  });
+  check('a known key cut by the context cap still reaches later batches once named', prompts[1].includes('story-two |'), true);
+}
+{
   const items = [1, 2, 3, 4, 5].map((n) => item(String(n), 'techcrunch_ai', `t${n}`));
   const res = await runEditor({
     items, knownStories: [], rubric: RUBRIC, sourceNames: NAMES, call: fakeCall([]), now: new Date(),

@@ -78,7 +78,9 @@ export async function runEditor(input: RunInput): Promise<RunResult> {
   const { caps, call, rubric, sourceNames, now } = input;
   const items = input.items.slice(0, caps.maxItems);
   const knownAtStart = selectKnownStories(input.knownStories, caps.contextStories);
-  const knownKeys = new Set(input.knownStories.map((s) => s.key));
+  // Only keys the prompt actually shows: one cut by the context cap and then
+  // named again must still reach later batches
+  const knownKeys = new Set(knownAtStart.map((s) => s.key));
   const namedThisRun: KnownStory[] = [];
   const byId = new Map(items.map((i) => [i.id, i]));
 

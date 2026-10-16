@@ -47,7 +47,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unchanged), the editor's top stories, also-notable, builders and papers, and
   the 7+ stories the old digest missed. `--dry-run` judges in memory with the
   local key and stores nothing; `--all` lists every judgment. Read-only (anon key).
-- **`npm run test:editor`** (68 assertions, no network) and a CI step for it.
+- **`npm run test:editor`** (69 assertions, no network) and a CI step for it.
 - **`docs/editor.md`**: how it works, the rubric, cost and caps, re-judging, the
   backfill and the auth setup.
 
