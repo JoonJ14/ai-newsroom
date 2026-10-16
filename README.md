@@ -14,10 +14,10 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 
 ## Status & roadmap
 
-- **Ranking rebuild in progress, step 1 of 4: collection fixes.** The four steps, each its own PR:
-  1. Fix collection: broken and dead sources, title clean-up, cross-source coverage in dedup (this step).
-  2. An AI editor that judges each item once, at collection time, and stores the judgment.
-  3. A new digest layout, with a preview mode.
+- **Ranking rebuild in progress, step 2 of 4: the AI editor.** The four steps, each its own PR:
+  1. Fix collection: broken and dead sources, title clean-up, cross-source coverage in dedup (done).
+  2. An AI editor that judges each item once, at collection time, and stores the judgment (this step). Claude Haiku 5.5 reads each item against a written rubric (`config/editor-rubric.md`) and stores its type, importance (1–10), audience, a plain headline, why it matters, and a story key that groups copies and follow-ups. Nothing displays the judgments yet. `npm run preview:editor` compares them with the old digest's picks. Details: [`docs/editor.md`](docs/editor.md).
+  3. A new digest layout built on the judgments.
   4. The MCP server reads the stored judgments, then is redeployed.
 - **Reddit is disabled.** It may return later via Reddit's official API, which needs a registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - **Recent change (Oct 2026):** scheduling moved to **Supabase Cron**. GitHub's own scheduler was delivering the daily digest 3–6 hours late. Supabase now starts the GitHub Actions runs at fixed times, and the digest targets **9:00 AM ET** year-round. The runs themselves still happen on GitHub Actions. Details: [`docs/scheduling.md`](docs/scheduling.md).
@@ -445,6 +445,7 @@ npm run collect
                  │   PostgreSQL    │
                  │  (news_items)   │
                  └────────┬────────┘
+                          │ judge once (AI editor, after each collect)
                           │ read
               ┌───────────┼───────────┐
               ▼           ▼           ▼
@@ -528,8 +529,10 @@ Issues and PRs welcome! If you want to add a new source:
 before a PR can merge; no approvals are required. Locally:
 
 ```bash
-npm run typecheck   # type-check src/
-npm run test:mcp    # MCP regression suite — no network or credentials needed
+npm run typecheck      # type-check src/
+npm run test:mcp       # MCP regression suite — no network or credentials needed
+npm run test:collect   # collector regression suite — no network
+npm run test:editor    # AI editor regression suite — no network
 ```
 
 CI also rejects NUL bytes in TypeScript sources and fails if the docs and the
