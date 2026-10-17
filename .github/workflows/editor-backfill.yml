@@ -1,0 +1,65 @@
+name: AI Editor Backfill
+
+# Judges every unjudged item from the last N days once, with higher caps than
+# the run after each collect. For the first run after migration 004, and after
+# clearing judgments to re-judge with a new rubric (docs/editor.md).
+#
+# Runs here because only GitHub Actions has the database's write key.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Look back this many days'
+        default: '7'
+      max_items:
+        description: 'Most items to judge'
+        default: '1500'
+      max_calls:
+        description: 'Most API calls'
+        default: '80'
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # workload identity federation, as in collect.yml
+    # Shared with the editor job in collect.yml
+    concurrency:
+      group: editor
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Judge unjudged items
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EDITOR_MODEL: ${{ vars.EDITOR_MODEL }}
+          # Inputs pass through env, never into the script text
+          EDITOR_DAYS: ${{ inputs.days }}
+          EDITOR_MAX_ITEMS: ${{ inputs.max_items }}
+          EDITOR_MAX_CALLS: ${{ inputs.max_calls }}
+          EDITOR_MAX_INPUT_TOKENS: '5000000'
+        run: npm run editor -- --days "$EDITOR_DAYS"

@@ -1,18 +1,21 @@
 {
   "name": "ai-newsroom",
   "version": "0.1.0",
-  "description": "Real-time AI news aggregator MCP server — 30 active sources, pre-cached, instant access from Claude Code or any MCP client.",
+  "description": "Real-time AI news aggregator MCP server \u2014 30 active sources, pre-cached, instant access from Claude Code or any MCP client.",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "collect": "tsx src/collectors/index.ts",
     "collect:source": "tsx src/collectors/index.ts --source",
     "digest": "tsx src/digest/generate.ts",
+    "editor": "tsx src/editor/index.ts",
+    "preview:editor": "tsx src/editor/preview.ts",
     "cleanup": "tsx src/utils/cleanup.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test:mcp": "tsx supabase/functions/mcp/external.test.ts",
-    "test:collect": "tsx src/collectors/collect.test.ts"
+    "test:collect": "tsx src/collectors/collect.test.ts",
+    "test:editor": "tsx src/editor/editor.test.ts"
   },
   "keywords": [
     "ai",
@@ -31,6 +34,7 @@
     "url": "https://github.com/joonj14/ai-newsroom"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@supabase/supabase-js": "^2.45.0",
     "better-sqlite3": "^11.0.0",
     "cheerio": "^1.0.0",

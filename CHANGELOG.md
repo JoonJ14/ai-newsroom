@@ -12,6 +12,45 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**AI editor (ranking rebuild, step 2 of 4)**
+
+- **`npm run editor`** (`src/editor/`): judges each recently collected item once
+  with Claude Haiku 5.5 (`claude-haiku-5-5`, `EDITOR_MODEL` to change) and stores
+  type, importance 1–10, audience (`general` / `builder`), a plain-language
+  headline, a why-it-matters line, a story key and a follow-up flag, plus the
+  model, rubric version and time. Batches of 25, structured JSON output,
+  validated and clamped; a malformed entry is rejected on its own, a batch cut
+  off at `max_tokens` is retried as two halves. Per-run caps on items, calls and
+  input tokens; tokens and estimated cost are logged on every run. **Nothing
+  displays the judgments yet** (step 3).
+- **Migration `004_editor_judgments.sql`** (run by hand, idempotent): ten
+  nullable `editor_*` columns, check constraints, a partial index on unjudged
+  rows and one on `editor_story_key`. RLS unchanged.
+- **The rubric is a file**, `config/editor-rubric.md`, with a version line stored
+  on each judgment. Built around "would someone who follows AI be annoyed to
+  learn about this a week late?", with an anchored 1–10 scale, rules for papers,
+  tool releases and wire stories on HN, and instructions to treat titles and
+  summaries as data.
+- **Story keys**: each request lists the keys judged in the last 7 days, so
+  copies from other outlets reuse a key and follow-ups are flagged.
+- **`collect.yml` runs the editor** as a second job after collection, allowed to
+  fail (`continue-on-error`): a failure never fails or undoes collection, and
+  unjudged items are retried next run.
+- **`editor-backfill.yml`**: `workflow_dispatch` run over the last N days with
+  higher caps.
+- **Workload identity federation** on GitHub Actions (`id-token: write` on the
+  editor jobs only; IDs as repository variables). It requests a fresh GitHub OIDC
+  token for every exchange. Falls back to the `ANTHROPIC_API_KEY` secret while the
+  variables are unset, and uses `.env` locally.
+- **`npm run preview:editor -- --date YYYY-MM-DD`** (or `--window`): for a
+  9:00 AM ET digest window, the old digest's picks (`buildSlottedDisplay`
+  unchanged), the editor's top stories, also-notable, builders and papers, and
+  the 7+ stories the old digest missed. `--dry-run` judges in memory with the
+  local key and stores nothing; `--all` lists every judgment. Read-only (anon key).
+- **`npm run test:editor`** (69 assertions, no network) and a CI step for it.
+- **`docs/editor.md`**: how it works, the rubric, cost and caps, re-judging, the
+  backfill and the auth setup.
+
 **Collection (ranking rebuild, step 1 of 4)**
 
 - **Three press sources** for policy, business and general AI coverage, all
@@ -246,6 +285,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   touch the database, but the client was constructed before routing.
 
 ### Changed
+
+**AI editor (ranking rebuild, step 2 of 4)**
+
+- The digest's slot options moved to `src/digest/slot-options.ts` so the preview
+  replays them exactly. Same values; digest output unchanged.
+- The collector upsert builds its rows in an exported `toUpsertRow`, now tested
+  to send no `editor_*` column. Same columns as before.
+- `@anthropic-ai/sdk` 0.135.0 added as a dependency.
+- **Temperature is left unset**, not 0 as planned: Claude Haiku 5.5 returns HTTP 400
+  ("`temperature` is deprecated for this model") for any value but 1, so the
+  editor leaves it unset; `EDITOR_TEMPERATURE` sends one for older models.
 
 **Collection (ranking rebuild, step 1 of 4)**
 

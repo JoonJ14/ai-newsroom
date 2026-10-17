@@ -43,6 +43,11 @@ jobs:
       - name: Collector regression suite
         run: npm run test:collect
 
+      # The AI editor: validation, prompts, caps, the editor-columns guarantee
+      # and the preview's selection, against a fake API. No network.
+      - name: Editor regression suite
+        run: npm run test:editor
+
       # A raw NUL makes tooling treat a source file as binary — ripgrep stops
       # reporting line matches and diffs degrade. One reached main on
       # 2026-08-05, so it is now checked rather than noticed by accident.

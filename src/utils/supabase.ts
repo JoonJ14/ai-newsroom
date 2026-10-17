@@ -93,6 +93,28 @@ export function mergeStoredMetadata(item: NewsItem, stored: Record<string, unkno
 }
 
 /**
+ * The columns a collection run writes. An upsert updates only the columns it
+ * sends, so anything left out here is never touched on an existing row:
+ * fetched_at (kept from the first insert) and every `editor_*` column (written
+ * once by the AI editor, src/editor/). Listing the columns, rather than
+ * spreading the item, is what keeps it that way.
+ */
+export function toUpsertRow(item: NewsItem, stored: Record<string, unknown> | undefined) {
+  return {
+    title: item.title,
+    url: item.url,
+    source: item.source,
+    source_category: item.sourceCategory,
+    score: item.score,
+    summary: item.summary ?? null,
+    authors: item.authors ?? null,
+    tags: item.tags,
+    published_at: item.publishedAt ?? null,
+    metadata: mergeStoredMetadata(item, stored),
+  };
+}
+
+/**
  * Upsert news items into the news_items table.
  * Uses (url, source) composite unique constraint.
  *
@@ -118,19 +140,7 @@ export async function upsertNewsItems(items: NewsItem[]): Promise<number> {
     log.warn(`Could not read stored metadata, so only new items are added this run: ${(err as Error).message}`);
   }
 
-  // Map to DB columns — fetched_at intentionally omitted
-  const rows = items.map((item) => ({
-    title: item.title,
-    url: item.url,
-    source: item.source,
-    source_category: item.sourceCategory,
-    score: item.score,
-    summary: item.summary ?? null,
-    authors: item.authors ?? null,
-    tags: item.tags,
-    published_at: item.publishedAt ?? null,
-    metadata: mergeStoredMetadata(item, stored?.get(rowKey(item.url, item.source))),
-  }));
+  const rows = items.map((item) => toUpsertRow(item, stored?.get(rowKey(item.url, item.source))));
 
   const BATCH_SIZE = 500;
   let upserted = 0;
