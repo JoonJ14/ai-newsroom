@@ -167,6 +167,14 @@ section('sections and thresholds');
   ], DIR), DIR);
   check('builder stories fill Top stories only at 7+, after general ones', [imp(short.top), imp(short.builders)], [[7, 6], [6]]);
 
+  const covered = buildSections(groupStories([
+    judged('arxiv_cs_ai', { storyKey: 'rsi', importance: 8, type: 'research' }),
+    judged('techcrunch_ai', { storyKey: 'rsi', importance: 8, type: 'research' }),
+    judged('hf_daily_papers', { storyKey: 'solo', importance: 7, type: 'research' }),
+  ], DIR), DIR);
+  check('a paper the press covered is news, led by the coverage; a paper only papers carried is the paper of note',
+    [covered.top.map((x) => [x.key, x.lead.source]), keysOf(covered.paper)], [[['rsi', 'techcrunch_ai']], ['solo']]);
+
   const custom = buildSections(groupStories(items, DIR), DIR, { rules: { ...SETTINGS.rules, topLimit: 2, topMinImportance: 8 } });
   check('thresholds are configurable', imp(custom.top), [9, 8]);
 }

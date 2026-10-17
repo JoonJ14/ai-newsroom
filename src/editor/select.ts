@@ -158,7 +158,13 @@ export function rankStories(stories: Story[]): Story[] {
   );
 }
 
-/** A paper: led by an arXiv or HF Papers item. Papers have their own section. */
+/**
+ * A paper: led by an arXiv or HF Papers item, so only papers carried it, and
+ * it goes in Paper of note alone. A paper the press or a lab also covered is
+ * usually led by that coverage (paper sources are in the last class) and is news:
+ * it competes for Top stories like any other story. Deliberate, not a leak:
+ * "research that changes what's possible" belongs in the main briefing.
+ */
 const isPaper = (s: Story) => PAPER_SOURCES.has(s.lead.source);
 const isGeneral = (s: Story) => s.lead.judgment.audience === 'general';
 

@@ -74,7 +74,8 @@ by its follow-up items.
 | **Paper of note** | 0 or 1 | a `research` story (or an arXiv / HF Papers one) at 6+. Usually empty: the rubric expects one or two a week |
 
 Each story appears in one section at most. arXiv and HF Papers items appear
-only as the paper of note. A quiet day shows fewer stories, never filler. When
+only as the paper of note, unless a lab or the press covered the same story:
+then that coverage leads it, and it competes for Top stories as news. A quiet day shows fewer stories, never filler. When
 nothing qualifies for Top stories, it says so in one line ("No top stories
 today."). Empty sections are left out.
 

@@ -47,7 +47,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **One shared map of source display names** (`src/utils/source-names.ts`), for
   every source in `sources.yaml` (tested). The audit had found raw ids like
   `[wired_ai]` in the digest. Dependency-free, so the MCP can adopt it in step 4.
-- **`npm run test:digest`** (89 assertions, no network) and a CI step for it.
+- **`npm run test:digest`** (90 assertions, no network) and a CI step for it.
 - **`docs/digest.md`**: layout, sections, thresholds, fallback, preview, and
   switching layouts.
 
