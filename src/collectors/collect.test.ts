@@ -14,7 +14,6 @@ import {
   enrichRecent, parseDayDate, readAnthropicArticle, scrapeAnthropicChangelog, scrapeAnthropicListing,
 } from './scraper.js';
 import { readBody } from '../utils/http.js';
-import { escapeDiscordMarkup } from '../digest/adapters/discord.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 let passed = 0;
@@ -379,14 +378,6 @@ section('scrapeAnthropicChangelog — one item per bullet');
   check('same words on two days survive dedup', deduplicateItems(twoDays).length, 2);
   check('earlier bullets keep their URLs', [...before].filter(([text, url]) => after.get(text) !== url), []);
 }
-
-// ─── digest delivery ─────────────────────────────────────────────
-
-section('escapeDiscordMarkup — feed titles shown as written');
-check('links, spoilers, emphasis, code, timestamps and escapes',
-  escapeDiscordMarkup('• [HN] \\[a](https://e.vil) ||b|| *c* _d_ ~e~ `f` <t:1>'),
-  '• \\[HN\\] \\\\\\[a\\](https://e.vil) \\|\\|b\\|\\| \\*c\\* \\_d\\_ \\~e\\~ \\`f\\` \\<t:1>');
-check('link lines untouched', escapeDiscordMarkup('  → x.com/a_b'), '  → x.com/a_b');
 
 // ─── summary ─────────────────────────────────────────────────────
 

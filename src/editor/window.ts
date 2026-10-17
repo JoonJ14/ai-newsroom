@@ -70,3 +70,17 @@ export function formatNy(at: Date): string {
     timeZone: NY, year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
   }).format(at);
 }
+
+/**
+ * Run `fn` with Date.now() frozen at `at`. buildSlottedDisplay measures
+ * recency from it, so replaying a past window needs the clock of its end.
+ */
+export function withClock<T>(at: Date, fn: () => T): T {
+  const real = Date.now;
+  Date.now = () => at.getTime();
+  try {
+    return fn();
+  } finally {
+    Date.now = real;
+  }
+}

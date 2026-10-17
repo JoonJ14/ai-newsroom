@@ -70,6 +70,11 @@ export class MissingEditorColumnsError extends Error {
  */
 let editorColumnsExist: boolean | undefined;
 
+/** False once a read has found the editor columns missing. */
+export function editorColumnsReadable(): boolean {
+  return editorColumnsExist !== false;
+}
+
 // Rows come back untyped from the select string
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -117,6 +122,7 @@ async function fetchWindow(
   from: Date,
   to: Date,
   filter: (q: any) => any = identity, // eslint-disable-line @typescript-eslint/no-explicit-any
+  baseOnly = false,
 ): Promise<StoredItem[]> {
   const out: StoredItem[] = [];
   let after: string | null = null;
@@ -125,20 +131,20 @@ async function fetchWindow(
   for (;;) {
     let q = sb
       .from('news_items')
-      .select(editorColumnsExist === false ? BASE_COLUMNS : ITEM_COLUMNS)
+      .select(baseOnly || editorColumnsExist === false ? BASE_COLUMNS : ITEM_COLUMNS)
       .gt('fetched_at', from.toISOString())
       .lte('fetched_at', to.toISOString())
       .order('id', { ascending: true })
       .limit(PAGE);
     if (after) q = q.gt('id', after);
     const { data, error } = await filter(q);
-    if (error?.code === UNDEFINED_COLUMN && editorColumnsExist === undefined) {
+    if (error?.code === UNDEFINED_COLUMN && editorColumnsExist === undefined && !baseOnly) {
       editorColumnsExist = false;
       if (editorFilter) throw new MissingEditorColumnsError();
       continue;
     }
     if (error) throw new Error(`news_items read failed: ${error.message}`);
-    editorColumnsExist ??= true;
+    if (!baseOnly) editorColumnsExist ??= true;
     const rows = (data ?? []) as Row[];
     out.push(...rows.map(rowToItem));
     if (rows.length < PAGE) return out;
@@ -155,9 +161,12 @@ export async function fetchUnjudged(sb: SupabaseClient, from: Date, to: Date): P
   return rows.sort(byFetchedDesc);
 }
 
-/** Every row fetched in (from, to], judged or not. */
-export async function fetchItems(sb: SupabaseClient, from: Date, to: Date): Promise<StoredItem[]> {
-  return (await fetchWindow(sb, from, to)).sort(byFetchedDesc);
+/**
+ * Every row fetched in (from, to], judged or not. `baseOnly` reads only the
+ * collection columns, for the digest's fallback when the editor's can't be read.
+ */
+export async function fetchItems(sb: SupabaseClient, from: Date, to: Date, baseOnly = false): Promise<StoredItem[]> {
+  return (await fetchWindow(sb, from, to, identity, baseOnly)).sort(byFetchedDesc);
 }
 
 /** Stories judged among rows fetched in (from, to], one entry per row. */

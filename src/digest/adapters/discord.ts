@@ -1,59 +1,24 @@
 /**
- * Discord webhook adapter.
- * Splits messages at section boundaries to respect 2000 char limit.
+ * Discord webhook adapter. Sends the digest in the chosen layout (render.ts):
+ * `plain` as regular messages, `embeds` as one embed per section. Feed text
+ * is escaped field by field when it is rendered, so this sends the payloads
+ * as they are.
  */
 
 import { createLogger } from '../../utils/logger.js';
+import type { DigestLayout } from '../config.js';
+import { discordPayloads, type DigestDocument, type DiscordPayload } from '../render.js';
 
 const log = createLogger('discord');
 
-function splitForDiscord(message: string, maxLen: number): string[] {
-  const chunks: string[] = [];
-  let current = '';
-
-  // Split into individual lines, then reassemble respecting the limit
-  const lines = message.split('\n');
-
-  for (const line of lines) {
-    // If adding this line would exceed the limit, flush current chunk
-    if (current.length + line.length + 1 > maxLen && current.length > 0) {
-      chunks.push(current.trimEnd());
-      current = '';
-    }
-    current += (current ? '\n' : '') + line;
-  }
-  if (current) chunks.push(current.trimEnd());
-
-  return chunks;
-}
-
-/**
- * Titles come from feeds, so show them as written: escape Discord's markup
- * characters (masked links, spoilers, emphasis, code, <t:…> and <:emoji:>),
- * and the backslashes that could cancel those escapes. Discord hides an
- * escaping backslash, so ordinary text renders the same. The "→ url" lines
- * are left alone so links stay clickable.
- */
-export function escapeDiscordMarkup(message: string): string {
-  return message
-    .split('\n')
-    .map((line) => (line.startsWith('  → ') ? line : line.replace(/[\\[\]*_~`|<]/g, '\\$&')))
-    .join('\n');
-}
-
-export async function sendDiscordDigest(message: string): Promise<void> {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) throw new Error('DISCORD_WEBHOOK_URL not set');
-
-  const chunks = splitForDiscord(escapeDiscordMarkup(message), 2000);
-  log.info(`Sending digest to Discord (${chunks.length} message(s))`);
-
-  for (let i = 0; i < chunks.length; i++) {
+export async function postDiscordPayloads(webhookUrl: string, payloads: DiscordPayload[]): Promise<void> {
+  for (let i = 0; i < payloads.length; i++) {
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // Titles come from feeds: never let one ping @everyone, a role or a user
-      body: JSON.stringify({ content: chunks[i], allowed_mentions: { parse: [] } }),
+      // Every payload carries allowed_mentions: { parse: [] }: a feed title
+      // never pings @everyone, a role or a user
+      body: JSON.stringify(payloads[i]),
     });
 
     if (!res.ok) {
@@ -61,10 +26,18 @@ export async function sendDiscordDigest(message: string): Promise<void> {
     }
 
     // Small delay between messages to avoid rate limiting
-    if (i < chunks.length - 1) {
+    if (i < payloads.length - 1) {
       await new Promise((r) => setTimeout(r, 500));
     }
   }
+}
 
+export async function sendDiscordDigest(doc: DigestDocument, layout: DigestLayout): Promise<void> {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) throw new Error('DISCORD_WEBHOOK_URL not set');
+
+  const payloads = discordPayloads(doc, layout);
+  log.info(`Sending digest to Discord (${layout} layout, ${payloads.length} message(s))`);
+  await postDiscordPayloads(webhookUrl, payloads);
   log.info('Discord digest sent successfully');
 }

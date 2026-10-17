@@ -12,7 +12,7 @@ import type { NewsItem } from '../collectors/types.js';
 import { authMode } from './client.js';
 import type { BatchResponse, JudgeCall } from './client.js';
 import { editorCaps, modelSettings } from './config.js';
-import { editorColumns } from './db.js';
+import { editorColumns, loadSources } from './db.js';
 import {
   clampImportance, fitText, slugify, validateJudgments, EDITOR_TYPES, RESPONSE_SCHEMA, type Judgment,
 } from './judgment.js';
@@ -20,7 +20,7 @@ import {
   buildItemInput, buildPrompt, loadRubric, parseRubric, selectKnownStories, tagSafeJson, type KnownStory,
 } from './prompt.js';
 import { runEditor, type EditorCaps } from './run.js';
-import { buildEditorView, groupStories, missedByOldDigest, type JudgedItem } from './select.js';
+import { buildSections, groupStories, missedByOldDigest, sourceDirectory, type JudgedItem } from './select.js';
 import { digestWindow, nyWallTime, parseWindow } from './window.js';
 
 let passed = 0;
@@ -312,7 +312,7 @@ check('the day DST ends is 25 hours long', [digestWindow('2026-11-01').from.toIS
 check('month boundary', digestWindow('2026-11-01').from.toISOString().slice(0, 10), '2026-10-31');
 await throws('--window must be ordered', () => parseWindow('2026-10-08T00:00Z,2026-10-07T00:00Z'));
 
-section('preview selection');
+section('story selection (shared with the digest; more in digest.test.ts)');
 function judged(id: string, source: string, j: Partial<JudgedItem['judgment']>, extra: Partial<NewsItem> = {}): JudgedItem {
   return {
     ...item(id, source, `title ${id}`, extra),
@@ -332,20 +332,21 @@ function judged(id: string, source: string, j: Partial<JudgedItem['judgment']>, 
     judged('p2', 'hf_daily_papers', { importance: 4, type: 'research' }),
     judged('lab', 'techcrunch_ai', { importance: 7, type: 'research' }),
   ];
-  const stories = groupStories(items, NAMES);
+  const dir = sourceDirectory(loadSources());
+  const stories = groupStories(items, dir);
   const gpt6 = stories.find((s) => s.key === 'gpt6')!;
   check('copies grouped into one story', gpt6.items.length, 3);
   check('lead: same importance, the lab post wins', gpt6.lead.id, 'oa');
-  check('outlets: every copy and its coveredBy, once each', gpt6.outlets, ['OpenAI News', 'TechCrunch AI', 'Hacker News AI Stories', 'The Verge AI']);
+  check('outlets: every copy and its coveredBy, once each', gpt6.outlets, ['OpenAI', 'TechCrunch', 'Hacker News', 'The Verge']);
 
-  const view = buildEditorView(stories);
+  const view = buildSections(stories, dir);
   // g2/g5/g8 are 6, g4/g7 are 5, g3/g6 are 4
   check('top 5: by importance, then outlets', view.top.map((s) => s.key), ['kb1', 'gpt6', 'klab', 'kg2', 'kg5']);
   check('also notable: next ones at 4+, none repeated', view.alsoNotable.map((s) => s.key), ['kg8', 'kg4', 'kg7', 'kg3', 'kg6']);
   check('a research result from a lab is news; papers have their own section',
-    [view.top.some((s) => s.key === 'klab'), view.papers.map((s) => s.key)], [true, ['kp1']]);
+    [view.top.some((s) => s.key === 'klab'), view.paper.map((s) => s.key)], [true, ['kp1']]);
   check('a routine paper is not shown anywhere',
-    [view.top, view.alsoNotable, view.builders, view.papers].flat().some((s) => s.key === 'kp2'), false);
+    [view.top, view.alsoNotable, view.builders, view.paper].flat().some((s) => s.key === 'kp2'), false);
   check('builders', view.builders.map((s) => s.key), ['kdev']);
   check('nothing below 4 makes it', [view.top, view.alsoNotable].flat().some((s) => s.key === 'klow'), false);
 
