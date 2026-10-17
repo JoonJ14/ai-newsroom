@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test:mcp": "tsx supabase/functions/mcp/external.test.ts",
     "test:collect": "tsx src/collectors/collect.test.ts",
-    "test:editor": "tsx src/editor/editor.test.ts"
+    "test:editor": "tsx src/editor/editor.test.ts",
+    "test:digest": "tsx src/digest/digest.test.ts"
   },
   "keywords": [
     "ai",
