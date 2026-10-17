@@ -74,8 +74,9 @@ by its follow-up items.
 | **Paper of note** | 0 or 1 | a `research` story (or an arXiv / HF Papers one) at 6+. Usually empty: the rubric expects one or two a week |
 
 Each story appears in one section at most. arXiv and HF Papers items appear
-only as the paper of note. A quiet day shows fewer stories, never filler. With
-nothing at 6+, Top stories says so in one line. Empty sections are left out.
+only as the paper of note. A quiet day shows fewer stories, never filler. When
+nothing qualifies for Top stories, it says so in one line ("No top stories
+today."). Empty sections are left out.
 
 **Footer:**
 - `Ranked by the AI editor · N items reviewed`, where N is the judged items in
@@ -177,8 +178,10 @@ from stored judgments, and prints what would be sent. It reads with
 Two differences from the real run, both because the anon key can't read
 `digest_state`:
 - It uses the nominal window (9:00 the day before to 9:00 that day).
-- It rebuilds the previous morning's top stories from that day's window, to
-  apply the no-repeat rule.
+- It replays the three mornings before the date (`PREVIEW_LOOKBACK_DAYS`),
+  oldest first, each with the morning before it as its repeat state, to work
+  out which stories led the day before. A story in the news for longer than
+  that may be treated differently than the real chain of digests did.
 
 `npm run digest -- --dry-run` builds the real next digest (from
 `last_digest_at` to now) and prints it without sending. It needs the service

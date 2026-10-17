@@ -25,8 +25,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **For builders**: up to 3 at 4+.
   - **Paper of note**: 0 or 1 at 6+.
 
-  A quiet day shows fewer stories. With nothing at 6+, Top stories says so in
-  one line.
+  A quiet day shows fewer stories. When nothing qualifies for Top stories, it
+  says so in one line.
 - **No repeat of yesterday's top stories** unless a newer item is a follow-up.
   The shown keys are stored in `digest_state` as `last_digest_story_keys` (JSON);
   no migration.
@@ -47,7 +47,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **One shared map of source display names** (`src/utils/source-names.ts`), for
   every source in `sources.yaml` (tested). The audit had found raw ids like
   `[wired_ai]` in the digest. Dependency-free, so the MCP can adopt it in step 4.
-- **`npm run test:digest`** (88 assertions, no network) and a CI step for it.
+- **`npm run test:digest`** (89 assertions, no network) and a CI step for it.
 - **`docs/digest.md`**: layout, sections, thresholds, fallback, preview, and
   switching layouts.
 

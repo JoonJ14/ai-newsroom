@@ -15,6 +15,14 @@ import type { DigestStore } from './store.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Mornings a preview replays before its date to know which stories led the
+ * day before: each one's leads depend on the morning before it. A story
+ * still in the news after this many days may be judged differently than the
+ * real chain of digests did; the preview is an approximation past that.
+ */
+export const PREVIEW_LOOKBACK_DAYS = 3;
+
+/**
  * `send`: the real digest. `dry-run`: the real window, printed, nothing sent
  * or stored. `preview`: a past 9:00 AM window from stored judgments, read-only.
  */
@@ -52,12 +60,16 @@ export async function runDigest(o: RunOptions): Promise<RunResult> {
 
   if (o.mode === 'preview') {
     if (!o.date) throw new Error('a preview needs a date');
-    // The anon key can't read digest_state, so the previous morning's top
-    // stories are rebuilt from its own window instead
-    const before = await plan(digestWindow(previousDate(o.date)), []);
+    // The anon key can't read digest_state, so the previous mornings' top
+    // stories are rebuilt from their own windows, oldest first, each with the
+    // leads of the morning before it, as the real digests would have been
+    const days = [o.date];
+    for (let i = 0; i < PREVIEW_LOOKBACK_DAYS; i++) days.unshift(previousDate(days[0]));
+    let ledBefore: string[] = [];
+    for (const day of days.slice(0, -1)) ledBefore = (await plan(digestWindow(day), ledBefore)).shown.top;
     const window = digestWindow(o.date);
-    const result = await plan(window, before.shown.top);
-    return { ...result, window, ledBefore: before.shown.top, sent: false };
+    const result = await plan(window, ledBefore);
+    return { ...result, window, ledBefore, sent: false };
   }
 
   const since = (await o.store.lastDigestAt()) ?? new Date(o.now.getTime() - DAY_MS).toISOString();

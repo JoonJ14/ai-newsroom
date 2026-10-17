@@ -178,7 +178,7 @@ section('quiet day');
     editorColumns: true, now: NOW, sources: SOURCES, dir: DIR, settings: SETTINGS, ledBefore: new Set(),
   });
   const text = renderText(plan.doc);
-  check('no top stories: one line says so', text.includes('No top stories today: nothing was rated 6 or higher.'), true);
+  check('no top stories: one line says so', text.includes('No top stories today.'), true);
   check('fewer items, no padding', [plan.shown.top.length, plan.shown.alsoNotable.length, plan.shown.builders.length], [0, 1, 0]);
   check('empty sections are left out', [text.includes('FOR BUILDERS'), text.includes('PAPER OF NOTE')], [false, false]);
 
@@ -419,10 +419,16 @@ section('runs — a preview never sends or writes');
     lastShown: async () => ({ ...NO_STORIES, top: ['old-lead'] }),
     items: async (from, to) => {
       calls.windows.push(`${from.toISOString()}→${to.toISOString()}`);
-      // The day before: "yesterday" leads; the day itself: the same story again, and a new one
-      return to.toISOString().startsWith('2026-10-15')
-        ? { items: [day('2026-10-15T20:00:00Z', 'yesterday')], editorColumns: true }
-        : { items: [day('2026-10-16T20:00:00Z', 'yesterday'), day('2026-10-16T21:00:00Z', 'today', 7)], editorColumns: true };
+      // "saga" is in the news three mornings running, with no follow-up: it leads
+      // on Oct 14, is held back as a repeat on Oct 15, and may lead again on Oct 16
+      const end = to.toISOString().slice(0, 10);
+      const items = {
+        '2026-10-13': [],
+        '2026-10-14': [day('2026-10-13T20:00:00Z', 'saga')],
+        '2026-10-15': [day('2026-10-14T20:00:00Z', 'saga')],
+        '2026-10-16': [day('2026-10-15T20:00:00Z', 'saga'), day('2026-10-15T21:00:00Z', 'today', 7)],
+      }[end] ?? [];
+      return { items, editorColumns: true };
     },
     save: async () => { calls.save++; },
   };
@@ -431,9 +437,13 @@ section('runs — a preview never sends or writes');
 
   const preview = await runDigest({ ...base, mode: 'preview', date: '2026-10-16' });
   check('preview: nothing delivered, digest_state untouched', [calls.deliver, calls.save, preview.sent], [0, 0, false]);
-  check('preview: the 9:00 AM ET window of that date, and the day before for its lead',
-    calls.windows, ['2026-10-14T13:00:00.000Z→2026-10-15T13:00:00.000Z', '2026-10-15T13:00:00.000Z→2026-10-16T13:00:00.000Z']);
-  check("preview: the previous morning's lead is rebuilt, and not repeated", [preview.ledBefore, preview.shown.top], [['yesterday'], ['today']]);
+  check('preview: the 9:00 AM ET window of that date, after replaying the three mornings before it',
+    calls.windows.map((w) => w.split('→')[1].slice(0, 10)), ['2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16']);
+  check('preview: repeat state carries through the replayed mornings',
+    [preview.ledBefore, preview.shown.top], [[], ['saga', 'today']]);
+  calls.windows.length = 0;
+  const middle = await runDigest({ ...base, mode: 'preview', date: '2026-10-15' });
+  check("preview: a story that led the morning before is held back", [middle.ledBefore, middle.shown.top, middle.repeats], [['saga'], [], ['saga']]);
 
   calls.windows.length = 0;
   const dry = await runDigest({ ...base, mode: 'dry-run' });
@@ -443,7 +453,7 @@ section('runs — a preview never sends or writes');
   let saved: [string, ShownStories] | undefined;
   const sent = await runDigest({ ...base, mode: 'send', store: { ...store, save: async (at, shown) => { saved = [at, shown]; } } });
   check('send: delivered once, then window end and shown keys stored',
-    [calls.deliver, saved, sent.sent], [1, ['2026-10-17T13:00:00.000Z', { top: ['yesterday', 'today'], alsoNotable: [], builders: [], paper: [] }], true]);
+    [calls.deliver, saved, sent.sent], [1, ['2026-10-17T13:00:00.000Z', { top: [], alsoNotable: [], builders: [], paper: [] }], true]);
 
   let savedAfterFailure = false;
   const failing = runDigest({

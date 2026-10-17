@@ -79,7 +79,8 @@ export function editorSections(sections: DigestSections, settings: DigestSetting
   return [
     {
       title: 'Top stories', icon: '📰', style: 'stories', entries: sections.top.map(storyEntry),
-      empty: `No top stories today: nothing was rated ${settings.rules.topMinImportance} or higher.`,
+      // Not "nothing was rated 6+": a paper or a builder story may have been, and be shown below
+      empty: 'No top stories today.',
     },
     { title: 'Also notable', icon: '📌', style: 'list', entries: sections.alsoNotable.map(storyEntry) },
     { title: 'For builders', icon: '🛠️', style: 'list', entries: sections.builders.map(storyEntry) },
