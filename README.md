@@ -14,10 +14,10 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 
 ## Status & roadmap
 
-- **Ranking rebuild in progress, step 2 of 4: the AI editor.** The four steps, each its own PR:
+- **Ranking rebuild in progress, step 3 of 4: the new digest.** The four steps, each its own PR:
   1. Fix collection: broken and dead sources, title clean-up, cross-source coverage in dedup (done).
-  2. An AI editor that judges each item once, at collection time, and stores the judgment (this step). Claude Haiku 5.5 reads each item against a written rubric (`config/editor-rubric.md`) and stores its type, importance (1–10), audience, a plain headline, why it matters, and a story key that groups copies and follow-ups. Nothing displays the judgments yet. `npm run preview:editor` compares them with the old digest's picks. Details: [`docs/editor.md`](docs/editor.md).
-  3. A new digest layout built on the judgments.
+  2. An AI editor that judges each item once, at collection time, and stores the judgment (done). Claude Haiku 5.5 reads each item against a written rubric (`config/editor-rubric.md`) and stores its type, importance (1–10), audience, a plain headline, why it matters, and a story key that groups copies and follow-ups. Details: [`docs/editor.md`](docs/editor.md).
+  3. The daily digest built on the judgments (this step). Stories instead of items: Top stories, Also notable, For builders and a Paper of note, each with a plain headline, a why-it-matters line and the outlets that carried it, as clickable links. The editor runs just before the digest. If its judgments are missing, the digest falls back to the old ranking and the footer says so. Two Discord layouts, `plain` (default) and `embeds`, chosen with the `DIGEST_LAYOUT` variable. Preview any past morning with `npm run digest -- --preview --date YYYY-MM-DD`. Details: [`docs/digest.md`](docs/digest.md).
   4. The MCP server reads the stored judgments, then is redeployed.
 - **Reddit is disabled.** It may return later via Reddit's official API, which needs a registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - **Recent change (Oct 2026):** scheduling moved to **Supabase Cron**. GitHub's own scheduler was delivering the daily digest 3–6 hours late. Supabase now starts the GitHub Actions runs at fixed times, and the digest targets **9:00 AM ET** year-round. The runs themselves still happen on GitHub Actions. Details: [`docs/scheduling.md`](docs/scheduling.md).
@@ -162,7 +162,7 @@ Once connected, just talk to Claude naturally. Here are some examples:
 
 ## Daily Digest — Get AI News Delivered to You
 
-Instead of asking Claude for news, you can have a formatted daily briefing automatically sent to Discord, Telegram, Slack, or iMessage every day. Here's how to set it up for each platform.
+Instead of asking Claude for news, you can have a formatted daily briefing automatically sent to Discord, Telegram, Slack, or iMessage every day. It leads with the day's top stories as ranked by the AI editor, each with a plain headline, a line on why it matters and the outlets that carried it ([`docs/digest.md`](docs/digest.md)). Here's how to set it up for each platform.
 
 ### Discord Setup
 
@@ -230,6 +230,8 @@ If you already have a Discord server you want to use, skip to step 5.
 3. Test without sending (just prints to your terminal):
    ```bash
    npm run digest -- --dry-run
+   # or a past morning, read-only, with just the anon key:
+   npm run digest -- --preview --date 2026-10-16
    ```
 4. Send a real test to Discord:
    ```bash
@@ -445,7 +447,8 @@ npm run collect
                  │   PostgreSQL    │
                  │  (news_items)   │
                  └────────┬────────┘
-                          │ judge once (AI editor, after each collect)
+                          │ judge once (AI editor, after each collect
+                          │ and again just before the digest)
                           │ read
               ┌───────────┼───────────┐
               ▼           ▼           ▼
@@ -482,8 +485,11 @@ Make sure the MCP server is connected. In Claude Code, run `claude mcp list` to 
 **"Discord message not appearing"**
 Check that your webhook URL is correct and hasn't been regenerated. Go back to your Discord channel settings > Integrations > Webhooks and verify the URL matches what's in your `.env` file.
 
-**"Digest says 'No new AI news since your last digest'"**
+**"Digest says 'No new AI news since the last digest'"**
 This means no new items were collected since the last run. The collectors run every 6 hours — try running `npm run collect` first to fetch fresh data, then `npm run digest`.
+
+**"The digest footer says 'AI editor unavailable today — basic ranking'"**
+Most of the day's items had no stored judgment (or the editor columns couldn't be read), so the digest used the old ranking. Check the **editor** job of that morning's **Daily AI News Digest** run and of the 8:30 collect run on the Actions tab. Usually it's missing Anthropic credentials or a failed API call. Details: [`docs/digest.md`](docs/digest.md#fallback).
 
 **"npm run collect fails with 'Missing SUPABASE_URL'"**
 You need a `.env` file in the project root with your Supabase credentials. See the Self-Hosting section above.

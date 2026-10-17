@@ -17,7 +17,59 @@ permissions:
   contents: read
 
 jobs:
+  # The AI editor first, so the digest's window is judged even when the 8:30
+  # collect run was late or its editor job failed (src/editor/, docs/editor.md).
+  # Its own job, so that only it can request an OIDC token. It can never stop
+  # the digest: the step and the job may fail, the digest job runs anyway, and
+  # with the window mostly unjudged the digest falls back to the old ranking.
+  #
+  # No `concurrency: editor` here, unlike collect.yml and the backfill: a run
+  # waiting in that group would hold up the 9:00 digest, and a newer queued
+  # run would cancel it. Overlapping editors are safe, just wasteful: each
+  # write only lands while the row is still unjudged.
+  editor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    continue-on-error: true
+    permissions:
+      contents: read
+      # Workload identity federation: lets the job ask GitHub for a short-lived
+      # OIDC token, which Anthropic exchanges for an API token. No write access.
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Judge unjudged items
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # Same auth as collect.yml: federation IDs as repository variables,
+          # falling back to the ANTHROPIC_API_KEY secret while they are unset
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EDITOR_MODEL: ${{ vars.EDITOR_MODEL }}
+        run: npm run editor
+
   digest:
+    needs: editor
+    # Whatever happened to the editor; only a cancelled run skips the digest
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -39,4 +91,17 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Layout and thresholds, as repository variables (docs/digest.md).
+          # Unset means the default: plain layout, thresholds in src/editor/select.ts.
+          DIGEST_LAYOUT: ${{ vars.DIGEST_LAYOUT }}
+          DIGEST_MIN_JUDGED_SHARE: ${{ vars.DIGEST_MIN_JUDGED_SHARE }}
+          DIGEST_TOP_LIMIT: ${{ vars.DIGEST_TOP_LIMIT }}
+          DIGEST_TOP_MIN_IMPORTANCE: ${{ vars.DIGEST_TOP_MIN_IMPORTANCE }}
+          DIGEST_TOP_BUILDER_MIN_IMPORTANCE: ${{ vars.DIGEST_TOP_BUILDER_MIN_IMPORTANCE }}
+          DIGEST_NOTABLE_LIMIT: ${{ vars.DIGEST_NOTABLE_LIMIT }}
+          DIGEST_NOTABLE_MIN_IMPORTANCE: ${{ vars.DIGEST_NOTABLE_MIN_IMPORTANCE }}
+          DIGEST_BUILDERS_LIMIT: ${{ vars.DIGEST_BUILDERS_LIMIT }}
+          DIGEST_BUILDERS_MIN_IMPORTANCE: ${{ vars.DIGEST_BUILDERS_MIN_IMPORTANCE }}
+          DIGEST_PAPER_LIMIT: ${{ vars.DIGEST_PAPER_LIMIT }}
+          DIGEST_PAPER_MIN_IMPORTANCE: ${{ vars.DIGEST_PAPER_MIN_IMPORTANCE }}
         run: npm run digest

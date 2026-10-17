@@ -12,6 +12,45 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**The digest, rebuilt on the editor's judgments (ranking rebuild, step 3 of 4)**
+
+- **Stories, not items.** Judged items grouped by `editor_story_key`, each with
+  its importance (the max of its items), every outlet that carried it (sources
+  and `coveredBy`, by display name), and a representative item for headline,
+  why-line and link: an official lab post, then a wire service (Reuters, AP, FT,
+  Bloomberg, also when linked from HN), then tier-1/2 press, then the rest.
+- **Sections**, thresholds configurable via `DIGEST_*` variables:
+  - **Top stories**: up to 5 at importance 6+, general audience first.
+  - **Also notable**: up to 5 at 4+.
+  - **For builders**: up to 3 at 4+.
+  - **Paper of note**: 0 or 1 at 6+.
+
+  A quiet day shows fewer stories. When nothing qualifies for Top stories, it
+  says so in one line.
+- **No repeat of yesterday's top stories** unless a newer item is a follow-up.
+  The shown keys are stored in `digest_state` as `last_digest_story_keys` (JSON);
+  no migration.
+- **`digest.yml` runs the AI editor first**, as its own job with the same auth as
+  `collect.yml` and `id-token: write` on that job only. It is allowed to fail,
+  and the digest runs whatever happens.
+- **Footer** states the ranking: `Ranked by the AI editor · N items reviewed`,
+  plus `(+N items not yet rated)` for items still unjudged, which are left out.
+- **Fallback.** Under 50% of the window judged (`DIGEST_MIN_JUDGED_SHARE`), or
+  the editor columns unreadable, the digest uses the old `buildSlottedDisplay`
+  ranking with the footer `AI editor unavailable today — basic ranking` and a
+  logged warning.
+- **Two Discord layouts**, `DIGEST_LAYOUT=plain` (default) or `embeds` (one embed
+  per section), from a repository variable or `.env`.
+- **`npm run digest -- --preview --date YYYY-MM-DD [--layout …] [--text]`**: the
+  digest for a past 9:00 AM ET window from stored judgments. It reads with the
+  anon key and never sends or writes `digest_state`.
+- **One shared map of source display names** (`src/utils/source-names.ts`), for
+  every source in `sources.yaml` (tested). The audit had found raw ids like
+  `[wired_ai]` in the digest. Dependency-free, so the MCP can adopt it in step 4.
+- **`npm run test:digest`** (90 assertions, no network) and a CI step for it.
+- **`docs/digest.md`**: layout, sections, thresholds, fallback, preview, and
+  switching layouts.
+
 **AI editor (ranking rebuild, step 2 of 4)**
 
 - **`npm run editor`** (`src/editor/`): judges each recently collected item once
@@ -285,6 +324,41 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   touch the database, but the client was constructed before routing.
 
 ### Changed
+
+**The digest (ranking rebuild, step 3 of 4)**
+
+- **Rubric v4** (`2026-10-17.4`), from an Oct 16 preview:
+  - government and regulatory action against major AI companies scores 7, and
+    a final ruling or enforcement 8;
+  - version releases with only small changes are `patch_release` at 1–3;
+  - the why-line is about the news, never the coverage (with bad and good
+    examples);
+  - a new 8 band for widely covered flagship and major open-weight releases.
+
+  Stored judgments are not redone; `docs/editor.md` has the re-judge steps.
+- **Discord links are clickable.** URL lines used to print without `https://`, so
+  Discord didn't link them. Links are now masked, `[Headline](<https://…>)`. The
+  angle brackets and the `SUPPRESS_EMBEDS` flag stop preview cards.
+- **Escaping is per field.** Headlines, why-lines, outlet names and the fallback
+  summary are escaped where they are inserted. Previously the whole message was
+  escaped, except lines starting with `  → `, which would have broken our own
+  links and bold headers. `escapeDiscordMarkup` and that prefix rule are gone.
+  `allowed_mentions: { parse: [] }` stays.
+- **Messages never split a story.** Discord packs whole stories per message, at
+  2,000 characters per plain message and the embed limits. Telegram, Slack and
+  iMessage get a plain-text rendering, with full `https://` URLs on their own
+  lines, split at blank lines. Their escaping is unchanged.
+- **`digest_state.last_digest_at` stores the window's end** (the run's start), not
+  the time of sending, so an item fetched while a digest is being built lands in
+  the next window instead of between the two.
+- The window is read in pages, not `limit(500)`. The fallback still ranks the 500
+  highest-scored items, as before.
+- `src/digest/format.ts` is replaced by `build.ts` and `render.ts`. The
+  slotted display's source names come from the shared map, so names like
+  "DeepMind" read "Google DeepMind".
+- `npm run preview:editor` uses the digest's selection: Top stories at 6+ (was 5+)
+  and one Paper of note (was up to three notable papers). The lead item is chosen
+  as above.
 
 **AI editor (ranking rebuild, step 2 of 4)**
 

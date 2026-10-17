@@ -12,16 +12,16 @@ AI Newsroom is an open-source, real-time AI/tech news aggregator exposed as an M
 
 3. **MCP Server** (`supabase/functions/mcp/`) — Supabase Edge Function implementing the MCP protocol. Exposes tools: `get_trending`, `get_top_picks`, `search`, `get_new_since`, `get_source_updates`, `get_repo_quickstart`, `get_paper_brief`, `check_status`.
 
-4. **AI Editor** (`src/editor/`) — Judges each collected item once with Claude Haiku 5.5 against `config/editor-rubric.md` and stores the result in `news_items.editor_*` (type, importance 1–10, audience, headline, why, story key, follow-up). Runs as a second job in `collect.yml`, allowed to fail. Nothing reads the judgments yet: step 3 of the ranking rebuild switches the digest over. See `docs/editor.md`.
+4. **AI Editor** (`src/editor/`) — Judges each collected item once with Claude Haiku 5.5 against `config/editor-rubric.md` and stores the result in `news_items.editor_*` (type, importance 1–10, audience, headline, why, story key, follow-up). Runs as a second job in `collect.yml`, and again as the first job of `digest.yml`; allowed to fail in both. The digest reads the judgments; the MCP doesn't yet (step 4). See `docs/editor.md`.
 
-5. **Digest Delivery** (`src/digest/`) — Optional personal layer. Pulls latest items, filters by user-configured priority topics via Claude API, formats a briefing, and sends to Discord/Telegram/Slack/iMessage webhook. The hosted digest is run by `digest.yml` on GitHub Actions daily at 9:00 AM New York time, again dispatched by Supabase Cron, with a 9:30 missed-digest alarm. Self-hosters can still run it locally with `scripts/setup-cron.sh`.
+5. **Digest Delivery** (`src/digest/`) — Builds the morning briefing from the editor's judgments: items grouped into stories (`src/editor/select.ts`), in Top stories, Also notable, For builders and Paper of note, with linked plain headlines and why-lines. Falls back to the old ranking (`buildSlottedDisplay`) when most of the window is unjudged, with a footer saying so. Sends to a Discord webhook (`plain` or `embeds` layout, `DIGEST_LAYOUT`), or Telegram/Slack/iMessage as plain text. The hosted digest is run by `digest.yml` on GitHub Actions daily at 9:00 AM New York time, again dispatched by Supabase Cron, with a 9:30 missed-digest alarm. Self-hosters can still run it locally with `scripts/setup-cron.sh`. See `docs/digest.md`.
 
 ### Tech Stack
 - **Language:** TypeScript throughout
 - **Runtime:** Node.js for collectors, Deno for Supabase Edge Functions
 - **Database:** Supabase PostgreSQL (hosted) or SQLite (self-hosted option)
-- **CI/CD:** GitHub Actions: `ci.yml` (PR checks), `collect.yml` (collect, then the AI editor) and `digest.yml` (dispatched on schedule by Supabase Cron), `editor-backfill.yml` (manual), `heartbeat.yml` (weekly keep-alive)
-- **LLM:** Claude Haiku 5.5 via `@anthropic-ai/sdk` for the AI editor. (The digest's optional summary still calls Haiku 4.5 over raw `fetch`; out of scope for step 2.) On Actions the editor authenticates by workload identity federation, falling back to the `ANTHROPIC_API_KEY` secret
+- **CI/CD:** GitHub Actions: `ci.yml` (PR checks), `collect.yml` (collect, then the AI editor) and `digest.yml` (the AI editor, then the digest; both dispatched on schedule by Supabase Cron), `editor-backfill.yml` (manual), `heartbeat.yml` (weekly keep-alive)
+- **LLM:** Claude Haiku 5.5 via `@anthropic-ai/sdk` for the AI editor. (The digest fallback's optional summary still calls Haiku 4.5 over raw `fetch`, and only with `ANTHROPIC_API_KEY` set for the digest job, which `digest.yml` doesn't do.) On Actions the editor authenticates by workload identity federation, falling back to the `ANTHROPIC_API_KEY` secret
 - **Scheduling:** Supabase Cron (`pg_cron` + `pg_net`) calls GitHub's `workflow_dispatch` API (`supabase/migrations/003_schedule_triggers.sql`)
 - **MCP Protocol:** HTTP transport via Supabase Edge Function
 
@@ -48,10 +48,12 @@ Sources are defined in `config/sources.yaml`. Each source has:
   policy and safety, lab and business news), with builder content as a secondary.
   1. **Fix collection** (done, PR #7). Only what gets collected and how cleanly;
      scoring, slotting, the digest format and the MCP were deliberately left alone.
-  2. **AI editor** (this step): judge each item once, at collection time, and store
-     the judgment. Digest output, slotting, scoring and the MCP are unchanged.
-  3. **New digest layout** built on the judgments (`src/editor/select.ts` is a first cut).
-  4. **MCP reads the stored judgments**, then redeploy the Edge Function.
+  2. **AI editor** (done, PR #8): judge each item once, at collection time, and store
+     the judgment.
+  3. **The digest built on the judgments** (this step). The MCP, collection and the
+     editor's storage format are unchanged.
+  4. **MCP reads the stored judgments**, then redeploy the Edge Function. Adopt
+     `src/utils/source-names.ts` for its source names (it has no imports, for Deno).
 - **What step 1 changed** (CHANGELOG has the full list):
   - Disabled: Reddit ×5 (403 from Actions), HuggingFace Trending Spaces (demos, and pinned
     at 93 by a date bug), VentureBeat (bot challenge, 429). Reasons are in `sources.yaml`.
@@ -81,6 +83,29 @@ Sources are defined in `config/sources.yaml`. Each source has:
   - Auth on Actions: federation IDs as repository variables, `id-token: write` on the editor
     jobs only; a fresh GitHub OIDC token per exchange. Fallback: `ANTHROPIC_API_KEY` secret.
   - Cost: about $0.02 a day. Caps on items, calls and input tokens per run.
+- **What step 3 adds** (`docs/digest.md` has the detail):
+  - Rubric v4 (`2026-10-17.4`): government action against major labs at 7–8, version
+    releases with only small changes are `patch_release` 1–3, why-lines never about
+    coverage, an 8 band for widely covered flagship and major open-weight releases.
+    Stored judgments are not redone.
+  - `digest.yml` runs the editor first as its own job (same auth as `collect.yml`,
+    `id-token: write` there only, allowed to fail, **not** in the `editor` concurrency
+    group so the digest never waits on it). The digest job runs on `!cancelled()`.
+  - Stories: grouped by `editor_story_key`; importance = the max; outlets from sources
+    and `coveredBy`; representative item: official lab, then wire (also via HN),
+    then tier-1/2 press, then the rest, among items rated within a point of the
+    story's best and of its audience. Yesterday's top-story keys
+    (`digest_state.last_digest_story_keys`, JSON) are not repeated without a follow-up.
+  - Unjudged items are left out and counted in the footer. Under 50% judged, or the
+    editor columns unreadable: the old `buildSlottedDisplay` ranking, footer
+    "AI editor unavailable today — basic ranking".
+  - Discord escaping is per field (`escapeDiscord` in `src/digest/render.ts`), never
+    per message; links are masked `[headline](<https://…>)`; plain messages also set
+    `SUPPRESS_EMBEDS`. Never split a story across messages.
+  - `digest_state.last_digest_at` now stores the window's end (the run's start), so
+    items fetched while a digest is being built fall in the next window.
+  - **A real send moves `last_digest_at`.** Never trigger an extra digest to test; use
+    `npm run digest -- --preview --date …` (anon key, never writes).
 - **Reddit is disabled.** It may return later via Reddit's official API, which needs a
   registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - The README's "Status & roadmap" section says the same thing. Keep the two in sync.
@@ -162,7 +187,7 @@ just what a collector happened to pick up.
 GitHub rate limit from 60/hr to 5,000/hr.
 
 ## File Structure
-Generated from `git ls-files` (2026-10-16). Regenerate it from there rather than editing by hand.
+Generated from `git ls-files` (2026-10-17). Regenerate it from there rather than editing by hand.
 ```
 ai-newsroom/
 ├── .github/
@@ -170,13 +195,14 @@ ai-newsroom/
 │   └── workflows/
 │       ├── ci.yml           # PR + push-to-main checks (required to merge)
 │       ├── collect.yml      # Collectors + 90-day cleanup, then the AI editor; dispatched by Supabase Cron
-│       ├── digest.yml       # Sends the daily digest; dispatched by Supabase Cron
+│       ├── digest.yml       # The AI editor, then the daily digest; dispatched by Supabase Cron
 │       ├── editor-backfill.yml # Manual: AI editor over the last N days, higher caps
 │       └── heartbeat.yml    # Weekly commit to the `heartbeat` branch; re-enables workflows
 ├── config/
 │   ├── editor-rubric.md     # The AI editor's system prompt, versioned; tune here
 │   └── sources.yaml         # Source definitions (enable/disable, URLs, types)
 ├── docs/
+│   ├── digest.md            # The digest: stories, sections, fallback, layouts, preview
 │   ├── editor.md            # AI editor: how it works, rubric, cost, re-judging, auth setup
 │   ├── scheduling.md        # Supabase Cron → workflow_dispatch: why, setup, renewal, rollback
 │   └── sessions/            # Engineering session write-ups
@@ -195,10 +221,14 @@ ai-newsroom/
 │   │   ├── scraper.ts       # Site-specific HTML scrapers (Anthropic news/research, release notes)
 │   │   └── types.ts         # Shared types: NewsItem, Source, etc.
 │   ├── digest/
-│   │   ├── generate.ts      # Pull data, filter, send; records digest_state.last_digest_at
-│   │   ├── format.ts        # Renders the slotted display for messaging apps
-│   │   ├── config.ts        # Digest config loader (digest section of sources.yaml)
-│   │   ├── slot-options.ts  # The digest's slot caps (shared with the editor preview)
+│   │   ├── generate.ts      # `npm run digest` (--dry-run, --preview): CLI, adapters
+│   │   ├── run.ts           # One run: window, build, deliver, record in digest_state
+│   │   ├── build.ts         # Items → digest document: editor stories, or the fallback
+│   │   ├── render.ts        # Discord plain/embeds and plain text; per-field escaping; limits
+│   │   ├── store.ts         # Supabase reads; the digest_state write
+│   │   ├── config.ts        # Adapter credentials; layout and thresholds from env
+│   │   ├── slot-options.ts  # The old ranking's slot caps (fallback, editor preview)
+│   │   ├── digest.test.ts   # `npm run test:digest` regression suite (no network)
 │   │   └── adapters/
 │   │       ├── discord.ts   # Discord webhook adapter
 │   │       ├── telegram.ts  # Telegram bot adapter
@@ -213,14 +243,15 @@ ai-newsroom/
 │   │   ├── db.ts            # Paged reads, editor-only writes
 │   │   ├── config.ts        # EDITOR_* settings and caps
 │   │   ├── preview.ts       # `npm run preview:editor`: old digest vs editor, read-only
-│   │   ├── select.ts        # Preview: stories, ranking, sections, missed-by-old-digest
-│   │   ├── window.ts        # 9:00 AM New York digest windows
+│   │   ├── select.ts        # Stories, representative item, ranking, sections (digest + preview)
+│   │   ├── window.ts        # 9:00 AM New York digest windows; frozen clock for replays
 │   │   └── editor.test.ts   # `npm run test:editor` regression suite (no network)
 │   └── utils/
 │       ├── supabase.ts      # Supabase client: upsert + cleanup
 │       ├── cleanup.ts       # `npm run cleanup`: delete items older than 90 days
 │       ├── scoring.ts       # Relevance score 0-100 (recency / community / tier)
-│       ├── slots.ts         # Slotted display layout (get_top_picks, digest)
+│       ├── slots.ts         # Slotted display layout (the digest's fallback, preview)
+│       ├── source-names.ts  # Display names for every source (one place; no imports)
 │       ├── dedup.ts         # URL + title-similarity dedup; records coveredBy on the kept row
 │       ├── date-filter.ts   # Skip items older than 7 days
 │       ├── http.ts          # fetch with deadline; every response read or cancelled
@@ -261,11 +292,14 @@ ai-newsroom/
   writes it back, so the two could overwrite each other's coverage. `collect.yml`
   runs one at a time (`concurrency: collect`); a local run is outside that.
 - `npm run collect -- --source anthropic_blog` — Run a single collector
-- `npm run digest` — Generate and send personal digest
+- `npm run digest` — Generate and send the digest. Moves `digest_state.last_digest_at`: never run it just to test
+- `npm run digest -- --preview --date YYYY-MM-DD [--layout plain|embeds] [--text]` — Print the digest for a past 9:00 AM ET window from stored judgments; anon key, never sends or writes
+- `npm run digest -- --dry-run` — Print the real next digest without sending (service key)
 - `npm run typecheck` — Type-check `src/` (note: `tsconfig.json` EXCLUDES `supabase/`)
 - `npm run test:mcp` — MCP regression suite; no network or credentials needed
 - `npm run test:collect` — collector regression suite (clean-up, dedup coverage, Anthropic parsers); no network
-- `npm run test:editor` — AI editor regression suite (validation, prompts, caps, editor-column guarantee, preview selection); no network
+- `npm run test:editor` — AI editor regression suite (validation, prompts, caps, editor-column guarantee, selection); no network
+- `npm run test:digest` — digest regression suite (stories, sections, fallback, escaping, Discord limits, layouts, adapters, preview never sends); no network
 - `npm run editor` — Judge unjudged items from the last 7 days (needs the service key, so in practice only on Actions)
 - `npm run preview:editor -- --date YYYY-MM-DD [--dry-run] [--all]` — Old digest vs editor for a 9:00 AM ET window; read-only, anon key; `--dry-run` judges in memory with the local `ANTHROPIC_API_KEY`
 - `supabase functions serve mcp` — Run Edge Function locally (this is the MCP server endpoint)
@@ -296,7 +330,7 @@ linear-history rule, so `--merge` works.
 `typecheck + tests` check is required to merge. It runs:
 
 1. `npm run typecheck`
-2. `npm run test:mcp`, `npm run test:collect` and `npm run test:editor`
+2. `npm run test:mcp`, `npm run test:collect`, `npm run test:editor` and `npm run test:digest`
 3. **NUL-byte scan** — a raw NUL makes tooling treat a source file as binary
    (ripgrep stops reporting line matches). One reached `main` on 2026-08-05.
 4. **docs-match-code** — every tool declared, routed *and* in the README, with
@@ -345,7 +379,7 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 # GitHub (optional for collectors; collect.yml passes the workflow's own token)
 GITHUB_TOKEN=...   # raises the release sources' API limit from 60/hour per IP
 
-# Claude API: the AI editor (local runs, and the Actions fallback) and the digest summary
+# Claude API: the AI editor (local runs, and the Actions fallback) and the digest fallback's summary
 ANTHROPIC_API_KEY=sk-ant-...
 
 # AI editor on Actions: workload identity federation, as repository VARIABLES (not secrets)
@@ -354,6 +388,10 @@ ANTHROPIC_ORGANIZATION_ID=...
 ANTHROPIC_SERVICE_ACCOUNT_ID=svac_...
 ANTHROPIC_WORKSPACE_ID=wrkspc_...   # only if the rule covers several workspaces
 # Optional tuning: EDITOR_MODEL, EDITOR_EFFORT, EDITOR_MAX_ITEMS, EDITOR_MAX_CALLS, ... (docs/editor.md)
+
+# Digest (optional; repository VARIABLES on Actions, docs/digest.md)
+DIGEST_LAYOUT=plain   # or embeds
+# Thresholds: DIGEST_TOP_MIN_IMPORTANCE=6, DIGEST_TOP_LIMIT=5, ..., DIGEST_MIN_JUDGED_SHARE=0.5
 
 # Self-hosted mode (optional, uses SQLite instead of Supabase)
 NEWSROOM_STORAGE=sqlite

@@ -9,6 +9,7 @@
  */
 
 import type { NewsItem, SourceCategory } from '../collectors/types.js';
+import { sourceDisplayName } from './source-names.js';
 
 export interface SlotOptions {
   topStoryLimit?: number;
@@ -84,49 +85,6 @@ function filterRecent(items: NewsItem[]): NewsItem[] {
     const time = new Date(ts).getTime();
     return !isNaN(time) && time >= cutoff;
   });
-}
-
-/** Display name for a source (e.g. claude_code_releases → Claude Code) */
-const SOURCE_DISPLAY_NAMES: Record<string, string> = {
-  anthropic_blog: 'Anthropic',
-  anthropic_changelog: 'Anthropic Changelog',
-  openai_news: 'OpenAI',
-  google_ai_blog: 'Google AI',
-  google_research: 'Google Research',
-  nvidia_developer_blog: 'NVIDIA',
-  claude_code_releases: 'Claude Code',
-  openai_codex_releases: 'OpenAI Codex',
-  hackernews_top: 'Hacker News',
-  show_hn: 'Show HN',
-  reddit_claudeai: 'r/ClaudeAI',
-  reddit_localllama: 'r/LocalLLaMA',
-  reddit_machinelearning: 'r/MachineLearning',
-  reddit_artificial: 'r/artificial',
-  hf_daily_papers: 'HF Papers',
-  hf_trending_spaces: 'HF Spaces',
-  github_trending: 'GitHub Trending',
-  arxiv_cs_ai: 'ArXiv cs.AI',
-  arxiv_cs_lg: 'ArXiv cs.LG',
-  arxiv_cs_cv: 'ArXiv cs.CV',
-  devto_ai: 'Dev.to',
-  infoq_ai: 'InfoQ',
-  thenewstack_ai: 'The New Stack',
-  vllm_releases: 'vLLM',
-  karpathy_blog: 'Karpathy',
-  deepmind_blog: 'DeepMind',
-  meta_ai_blog: 'Meta AI',
-  xai_blog: 'xAI',
-  sam_altman_blog: 'Sam Altman',
-  steipete_blog: 'Peter Steinberger',
-  techcrunch_ai: 'TechCrunch',
-  venturebeat_ai: 'VentureBeat',
-  theverge_ai: 'The Verge',
-  mit_tech_review_ai: 'MIT Tech Review',
-  reddit_openai: 'r/OpenAI',
-};
-
-function sourceDisplayName(source: string): string {
-  return SOURCE_DISPLAY_NAMES[source] ?? source;
 }
 
 /**

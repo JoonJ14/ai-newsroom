@@ -1,28 +1,12 @@
 /**
  * Slack incoming webhook adapter.
- * 40,000 char limit — splitting rarely needed but implemented for safety.
+ * Sends the plain-text rendering; 40,000 char limit, so splitting is rarely needed.
  */
 
 import { createLogger } from '../../utils/logger.js';
+import { splitText } from '../render.js';
 
 const log = createLogger('slack');
-
-function splitAtSections(message: string, maxLen: number): string[] {
-  const sections = message.split(/\n(?=📢|🔥|📄|📰|───────────────────)/);
-  const chunks: string[] = [];
-  let current = '';
-
-  for (const section of sections) {
-    if (current.length + section.length + 1 > maxLen && current.length > 0) {
-      chunks.push(current.trimEnd());
-      current = '';
-    }
-    current += (current ? '\n' : '') + section;
-  }
-  if (current) chunks.push(current.trimEnd());
-
-  return chunks;
-}
 
 export async function sendSlackDigest(message: string): Promise<void> {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
@@ -31,7 +15,7 @@ export async function sendSlackDigest(message: string): Promise<void> {
   // Titles come from feeds. Escape Slack's control characters so "<!channel>"
   // or "<https://x|label>" in a title is shown, not acted on
   const escaped = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const chunks = splitAtSections(escaped, 40_000);
+  const chunks = splitText(escaped, 40_000);
   log.info(`Sending digest to Slack (${chunks.length} message(s))`);
 
   for (let i = 0; i < chunks.length; i++) {

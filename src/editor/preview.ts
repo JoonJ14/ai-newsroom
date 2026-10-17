@@ -20,6 +20,7 @@
 import 'dotenv/config';
 import { buildSlottedDisplay, formatSlottedDisplayAsText } from '../utils/slots.js';
 import { digestSlotOptions } from '../digest/slot-options.js';
+import { FALLBACK_POOL } from '../digest/build.js';
 import { apiJudgeCall, authMode, AUTH_DESCRIPTIONS, createAnthropicClient, estimateCostUsd } from './client.js';
 import { editorCaps, modelSettings } from './config.js';
 import {
@@ -28,29 +29,16 @@ import {
 import { loadRubric, sourceNameMap } from './prompt.js';
 import { runEditor } from './run.js';
 import {
-  buildEditorView, groupStories, missedByOldDigest, rankStories, type JudgedItem, type Story,
+  buildSections, groupStories, missedByOldDigest, rankStories, sourceDirectory, type JudgedItem, type Story,
 } from './select.js';
-import { digestWindow, formatNy, parseWindow, type TimeWindow } from './window.js';
+import { digestWindow, formatNy, parseWindow, withClock, type TimeWindow } from './window.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The digest's query: `order by score desc limit 500` (src/digest/generate.ts). */
-const DIGEST_POOL = 500;
 
 function argValue(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
-}
-
-/** Run `fn` with Date.now() frozen at `at`: buildSlottedDisplay measures recency from it. */
-function withClock<T>(at: Date, fn: () => T): T {
-  const real = Date.now;
-  Date.now = () => at.getTime();
-  try {
-    return fn();
-  } finally {
-    Date.now = real;
-  }
 }
 
 function rule(title: string) {
@@ -139,7 +127,7 @@ async function main() {
   if (items.length === 0) return;
 
   // 1. The old digest
-  const pool = [...items].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, DIGEST_POOL);
+  const pool = [...items].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, FALLBACK_POOL);
   const display = withClock(window.to, () => buildSlottedDisplay(pool, digestSlotOptions(sources)));
   rule('1. What the old digest logic picked (buildSlottedDisplay, unchanged)');
   console.log('Scores are as stored now; later collect runs rewrite them, so this approximates what was sent.\n');
@@ -161,13 +149,16 @@ async function main() {
   }
   console.log(`Importance: ${histogram(judged)}`);
 
-  const stories = groupStories(judged, sourceNames);
-  const view = buildEditorView(stories);
+  const dir = sourceDirectory(sources);
+  const stories = groupStories(judged, dir);
+  // The digest's sections and default thresholds, without its repeat rule
+  // (yesterday's top stories need digest_state); `npm run digest -- --preview` has it
+  const view = buildSections(stories, dir);
   console.log(`${stories.length} stories.`);
   printStories('Top stories', view.top);
   printStories('Also notable', view.alsoNotable);
   printStories('For builders', view.builders);
-  printStories('Notable papers', view.papers);
+  printStories('Paper of note', view.paper);
 
   if (process.argv.includes('--all')) {
     rule('Every judgment, by story (--all)');

@@ -2,22 +2,31 @@
  * Digest generator — the main entry point for daily AI news briefings.
  *
  * Usage:
- *   npm run digest              # Generate and send digest
- *   npm run digest -- --dry-run # Print to stdout without sending
+ *   npm run digest                                   # build, send, record in digest_state
+ *   npm run digest -- --dry-run                      # the real window, printed, nothing sent or stored
+ *   npm run digest -- --preview --date 2026-10-16    # a past 9:00 AM ET window, read-only
+ *   … --layout plain|embeds                          # override DIGEST_LAYOUT
+ *   … --text                                         # also print the Slack/Telegram/iMessage rendering
+ *
+ * The digest is built from the AI editor's stored judgments (docs/digest.md).
+ * digest.yml runs the editor first, so the window is judged; if most of it
+ * still isn't, the old ranking is used and the footer says so.
+ *
+ * --preview reads with SUPABASE_ANON_KEY and never sends or writes. --dry-run
+ * needs the service key, to read digest_state.
  */
 
 import 'dotenv/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parse as parseYAML } from 'yaml';
+import { appendFileSync } from 'node:fs';
 import { createLogger } from '../utils/logger.js';
-import { buildSlottedDisplay } from '../utils/slots.js';
-import type { NewsItem, SourceCategory, SourceConfig, SourcesConfig } from '../collectors/types.js';
-import { formatDigestMessage } from './format.js';
-import { loadDigestConfig } from './config.js';
-import { digestSlotOptions } from './slot-options.js';
+import type { NewsItem } from '../collectors/types.js';
+import { loadSources, readClient, serviceClient } from '../editor/db.js';
+import { sourceDirectory } from '../editor/select.js';
+import { formatNy } from '../editor/window.js';
+import { DIGEST_LAYOUTS, digestSettings, loadDigestConfig, type DigestLayout } from './config.js';
+import { discordPayloads, renderText, type DigestDocument } from './render.js';
+import { runDigest, type RunMode, type RunResult } from './run.js';
+import { supabaseStore } from './store.js';
 import { sendDiscordDigest } from './adapters/discord.js';
 import { sendTelegramDigest } from './adapters/telegram.js';
 import { sendSlackDigest } from './adapters/slack.js';
@@ -25,36 +34,18 @@ import { sendIMessageDigest } from './adapters/imessage.js';
 
 const log = createLogger('digest');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function loadSourceConfigs(): SourceConfig[] {
-  const configPath = resolve(__dirname, '../../config/sources.yaml');
-  const raw = readFileSync(configPath, 'utf-8');
-  const config: SourcesConfig = parseYAML(raw);
-  return config.sources;
+function argValue(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-async function getLastDigestTime(sb: SupabaseClient): Promise<string> {
-  const { data } = await sb
-    .from('digest_state')
-    .select('value')
-    .eq('key', 'last_digest_at')
-    .maybeSingle();
-
-  if (data?.value) return data.value;
-
-  // Default: 24 hours ago
-  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+/** A GitHub Actions annotation when running there, a plain warning otherwise. */
+function annotate(message: string) {
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Digest::${message}`);
+  else log.warn(message);
 }
 
-async function saveLastDigestTime(sb: SupabaseClient) {
-  const now = new Date().toISOString();
-  await sb
-    .from('digest_state')
-    .upsert({ key: 'last_digest_at', value: now, updated_at: now });
-}
-
+/** Only the fallback (the old ranking) uses this, and only with ANTHROPIC_API_KEY set. */
 async function generateAISummary(items: NewsItem[]): Promise<string | undefined> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return undefined;
@@ -101,106 +92,115 @@ async function generateAISummary(items: NewsItem[]): Promise<string | undefined>
   }
 }
 
-async function main() {
-  const dryRun = process.argv.includes('--dry-run');
-  const startTime = Date.now();
-
-  log.info(`Starting digest generation${dryRun ? ' (dry run)' : ''}`);
-
-  // Load config (skip validation in dry-run mode)
-  let adapter = 'discord';
-  if (!dryRun) {
-    const config = loadDigestConfig();
-    adapter = config.adapter;
-  }
-
-  // Connect to Supabase
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
-  }
-  const sb = createClient(supabaseUrl, supabaseKey);
-
-  // Get last digest timestamp from Supabase
-  const since = await getLastDigestTime(sb);
-  const sinceAge = Math.round((Date.now() - new Date(since).getTime()) / 3600000);
-  log.info(`Last digest: ${since} (${sinceAge}h ago)`);
-
-  const { data, error } = await sb
-    .from('news_items')
-    .select('*')
-    .gt('fetched_at', since)
-    .order('score', { ascending: false })
-    .limit(500);
-
-  if (error) throw new Error(`DB query failed: ${error.message}`);
-
-  if (!data || data.length === 0) {
-    const emptyMsg = '📭 No new AI news since your last digest. Quiet day!';
-    log.info(emptyMsg);
-
-    if (dryRun) {
-      console.log('\n' + emptyMsg);
-    } else {
-      await sendToAdapter(adapter, emptyMsg);
-      await saveLastDigestTime(sb);
-    }
-    return;
-  }
-
-  // Map DB rows to NewsItem
-  const items: NewsItem[] = data.map((row) => ({
-    title: row.title,
-    url: row.url,
-    source: row.source,
-    sourceCategory: row.source_category as SourceCategory,
-    score: row.score,
-    summary: row.summary,
-    authors: row.authors,
-    tags: row.tags ?? [],
-    fetchedAt: row.fetched_at,
-    publishedAt: row.published_at,
-    metadata: row.metadata,
-  }));
-
-  log.info(`Fetched ${items.length} new items since last digest`);
-
-  // Build slotted display with tighter caps for human-readable digest
-  const display = buildSlottedDisplay(items, digestSlotOptions(loadSourceConfigs()));
-
-  // Optional AI summary
-  const summary = await generateAISummary(items);
-
-  // Format message
-  const message = formatDigestMessage(display, items.length, summary);
-
-  if (dryRun) {
-    console.log('\n' + message);
-    console.log(`\n--- Dry run complete. ${items.length} items, ${message.length} chars ---`);
-  } else {
-    await sendToAdapter(adapter, message);
-    await saveLastDigestTime(sb);
-    log.info(`Digest sent via ${adapter}`);
-  }
-
-  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  log.info(`Done in ${elapsed}s`);
-}
-
-async function sendToAdapter(adapter: string, message: string) {
+async function sendToAdapter(adapter: string, doc: DigestDocument, layout: DigestLayout) {
   switch (adapter) {
     case 'discord':
-      return sendDiscordDigest(message);
+      return sendDiscordDigest(doc, layout);
     case 'telegram':
-      return sendTelegramDigest(message);
+      return sendTelegramDigest(renderText(doc));
     case 'slack':
-      return sendSlackDigest(message);
+      return sendSlackDigest(renderText(doc));
     case 'imessage':
-      return sendIMessageDigest(message);
+      return sendIMessageDigest(renderText(doc));
     default:
       throw new Error(`Unknown adapter: ${adapter}`);
   }
+}
+
+function printDigest(result: RunResult, layout: DigestLayout, withText: boolean) {
+  const rule = (title: string) => console.log(`\n${'━'.repeat(72)}\n${title}\n${'━'.repeat(72)}`);
+  rule(
+    `Digest for ${formatNy(result.window.to)} · window ${formatNy(result.window.from)} → ${formatNy(result.window.to)}\n` +
+      `${result.mode === 'editor' ? 'AI editor' : result.mode}: ${result.judged}/${result.total} judged` +
+      (result.repeats.length ? ` · left out as repeats: ${result.repeats.join(', ')}` : '') +
+      (result.ledBefore.length ? `\nPrevious top stories: ${result.ledBefore.join(', ')}` : ''),
+  );
+  const payloads = discordPayloads(result.doc, layout);
+  if (layout === 'plain') {
+    payloads.forEach((p, i) => {
+      console.log(`\n── Discord message ${i + 1} of ${payloads.length} (${p.content!.length} characters) ──\n`);
+      console.log(p.content);
+    });
+  } else {
+    payloads.forEach((p, i) => {
+      const chars = (p.embeds ?? []).reduce((n, e) => n + e.title.length + e.description.length + (e.footer?.text.length ?? 0), 0);
+      console.log(`\n── Discord message ${i + 1} of ${payloads.length}: ${p.embeds?.length ?? 0} embeds, ${chars} characters ──\n`);
+      console.log(JSON.stringify(p, null, 2));
+    });
+  }
+  if (withText) {
+    rule('Plain-text rendering (Slack, Telegram, iMessage)');
+    console.log(renderText(result.doc));
+  }
+}
+
+async function main() {
+  const preview = process.argv.includes('--preview');
+  const dryRun = process.argv.includes('--dry-run');
+  const mode: RunMode = preview ? 'preview' : dryRun ? 'dry-run' : 'send';
+  const startTime = Date.now();
+
+  const settings = digestSettings();
+  const layoutArg = argValue('--layout');
+  if (layoutArg && !(DIGEST_LAYOUTS as string[]).includes(layoutArg)) throw new Error('--layout must be plain or embeds');
+  const layout = (layoutArg as DigestLayout | undefined) ?? settings.layout;
+  for (const w of settings.warnings) annotate(w);
+
+  const date = argValue('--date');
+  if (preview && !date) throw new Error('--preview needs --date YYYY-MM-DD');
+
+  log.info(`Starting digest (${mode}, ${layout} layout)`);
+
+  // Validates the adapter's credentials; previews and dry runs send nothing
+  const adapter = mode === 'send' ? loadDigestConfig().adapter : 'discord';
+  const sources = loadSources();
+
+  const result = await runDigest({
+    mode,
+    store: preview ? supabaseStore(readClient(), { readOnly: true }) : supabaseStore(serviceClient()),
+    now: new Date(),
+    date,
+    settings,
+    layout,
+    sources,
+    dir: sourceDirectory(sources),
+    deliver: (doc, l) => sendToAdapter(adapter, doc, l),
+    summarize: generateAISummary,
+  });
+
+  log.info(
+    `Window ${result.window.from.toISOString()} → ${result.window.to.toISOString()}: ${result.total} items, ` +
+      `${result.judged} judged, ${result.unjudged} not yet rated`,
+  );
+  if (result.mode === 'fallback') annotate(`AI editor unavailable, basic ranking used: ${result.reason}.`);
+  if (result.repeats.length) log.info(`Left out, led the previous digest: ${result.repeats.join(', ')}`);
+
+  if (mode === 'send') {
+    log.info(`Digest sent via ${adapter}`);
+  } else {
+    printDigest(result, layout, process.argv.includes('--text'));
+    console.log(`\n--- ${mode === 'preview' ? 'Preview' : 'Dry run'}: nothing sent, digest_state unchanged ---`);
+  }
+
+  if (process.env.GITHUB_STEP_SUMMARY && mode === 'send') {
+    appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      [
+        '### Digest',
+        '',
+        '| | |',
+        '|---|---|',
+        `| Ranking | ${result.mode === 'fallback' ? `basic (fallback): ${result.reason}` : result.mode} |`,
+        `| Layout | ${layout} |`,
+        `| Items | ${result.total} (${result.judged} judged, ${result.unjudged} not yet rated) |`,
+        `| Top stories | ${result.shown.top.join(', ') || '—'} |`,
+        `| Repeats left out | ${result.repeats.join(', ') || '—'} |`,
+        '',
+      ].join('\n'),
+    );
+  }
+
+  log.info(`Done in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
 }
 
 main().catch((err) => {

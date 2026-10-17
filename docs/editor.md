@@ -3,14 +3,15 @@
 Step 2 of the ranking rebuild. The old score never reads an item's content: it is
 recency, engagement and source tier, so a Claude Code patch release and GPT-6
 could land side by side. The editor reads each item once, judges it against a
-written rubric, and stores the judgment on the row. **Nothing displays the
-judgments yet.** Step 3 builds the digest from them; step 4 has the MCP read
-them.
+written rubric, and stores the judgment on the row. Since step 3 the daily
+digest is built from the judgments ([`docs/digest.md`](digest.md)); step 4
+has the MCP read them.
 
 ## How it works
 
 ```
 collect.yml ─▶ collect job ─▶ editor job ─▶ npm run editor
+digest.yml  ─▶ editor job ─▶ digest job     (the same editor, just before the 9:00 digest)
                                  │
                                  ├─ unjudged rows from the last 7 days, newest first
                                  ├─ story keys judged in the last 7 days (context)
@@ -27,8 +28,11 @@ collect.yml ─▶ collect job ─▶ editor job ─▶ npm run editor
   collect job, with `continue-on-error: true`. If it fails, the run stays green
   with a warning, and collection is unaffected. Unjudged items are retried on the
   next run. With no Anthropic credentials at all, it logs a warning and exits 0.
-- **One at a time.** The editor job and the backfill share the `editor`
-  concurrency group, so two runs never judge the same rows.
+- **One at a time, mostly.** `collect.yml`'s editor job and the backfill share
+  the `editor` concurrency group. The editor job in `digest.yml` stays out of
+  it, so the 9:00 digest never waits or gets cancelled in the queue. If it
+  overlaps another run, both may judge the same rows; the first write wins
+  (writes need `editor_judged_at` to be null), and the cost is a few cents.
 - **Stories.** Each judgment carries a `story_key` slug. The prompt lists the
   keys judged in the last 7 days, and keys named earlier in the same run, so
   copies from other outlets reuse the key and genuine follow-ups get
@@ -63,7 +67,7 @@ The system prompt, word for word, minus HTML comments. Tune it there without
 touching code. Its first line is the version:
 
 ```
-<!-- rubric-version: 2026-10-16.3 -->
+<!-- rubric-version: 2026-10-17.4 -->
 ```
 
 **Bump it on every change.** It is stored with each judgment, so you can tell
@@ -73,8 +77,38 @@ in the rubric alone does nothing.
 
 The test it is built around: *would someone who follows AI be annoyed to learn
 about this a week late?* The importance scale is anchored with real examples.
-Several come from the Oct 8 and Oct 13 windows, so previews of those two days
-flatter it; judge rubric changes on other days too.
+Several come from the Oct 8, Oct 13 and Oct 16 windows, so previews of those
+days flatter it; judge rubric changes on other days too.
+
+### Version history
+
+- **`2026-10-17.4`** (step 3). From a preview of Oct 16, where judgments were
+  sound overall but:
+  - **Regulators and governments**: an investigation, a government lawsuit or
+    enforcement against a major AI company is 7. A final ruling, fine or
+    enforcement order is 8. (An FTC probe of OpenAI and Anthropic had scored 6,
+    below a foreign court ruling.)
+  - **Releases**: notes with only small features, fixes or tweaks are a
+    `patch_release` at 1–3. `tool_release` 4–6 needs a headline feature most
+    users would notice. (A Claude Code release the editor itself called "mostly
+    minor" had scored 5.)
+  - **Why-lines** are about the news, never the coverage, with bad and good
+    examples. ("Same story as the existing Meta Muse Spark Open entry" kept
+    appearing.)
+  - **Calibration at the top**: a new 8 band. A major lab's flagship model, or a
+    major open-weight release, that is widely covered is 8; 9–10 stays rare.
+    (Meta's 816B-parameter open-weight model, carried by five outlets, had
+    scored 7, and nothing on Oct 16 reached 8.)
+
+  A dry run of Oct 16 with v4 gave all four fixes: the FTC probe at 7, the
+  Claude Code release a `patch_release` at 2, Muse Spark Open at 8, and no
+  why-line about coverage.
+- **`2026-10-16.3`**: the first rubric used for stored judgments, including
+  the backfill of the week to Oct 16.
+
+**Judgments are not redone when the rubric changes.** New items get the new
+version; stored ones keep theirs (`editor_version`). To re-judge a window,
+see [Re-judging](#re-judging).
 
 ### Trying a change before it judges anything
 
@@ -85,6 +119,9 @@ npm run preview:editor -- --date 2026-10-13 --dry-run --all   # plus every judgm
 
 `--dry-run` uses the local `ANTHROPIC_API_KEY` and reads with
 `SUPABASE_ANON_KEY`. It writes nothing. A day costs about two cents.
+
+To see the effect on the digest itself, `npm run digest -- --preview --date …`
+shows the digest built from stored judgments ([`docs/digest.md`](digest.md)).
 
 ## The preview
 
@@ -102,15 +139,12 @@ the day before), it prints:
    rewrite them, so this approximates what was actually sent. The real digest
    starts from `digest_state.last_digest_at`, which the anon key can't read, so
    the preview uses the nominal window.
-2. **The editor's view.** Stories (judged items grouped by `story_key`), ranked
-   by importance, then by how many outlets carried them:
-   - top 5 general-audience stories at importance 5+;
-   - also notable: the next 5 at 4+;
-   - for builders: the top 3 `builder` stories at 4+;
-   - notable papers: arXiv / HF papers at 6+ (the rubric expects one or two a week).
+2. **The editor's view.** Stories (judged items grouped by `story_key`) in the
+   digest's sections, with its default thresholds (`src/editor/select.ts`,
+   shared with the digest; the rules are in [`docs/digest.md`](digest.md)):
+   Top stories, Also notable, For builders, Paper of note. Unlike the digest,
+   it doesn't leave out the previous morning's top stories.
 3. **Rated 7+ but not shown by the old digest.**
-
-These sections are a first cut at step 3's layout (`src/editor/select.ts`).
 
 ## Cost and caps
 
@@ -158,6 +192,11 @@ WHERE fetched_at >= NOW() - INTERVAL '7 days';
 The editor only looks back `--days` (7 by default; the backfill takes it as an
 input), so clearing older rows needs a larger `days` on the backfill.
 
+Clear and backfill well before 8:30 AM ET, or after 9:00. Otherwise the
+morning's digest may find the window mostly unjudged and fall back to the old
+ranking. The digest's own editor job only judges up to its caps (300 items, 20
+calls).
+
 ## The backfill: `editor-backfill.yml`
 
 Actions → **AI Editor Backfill** → Run workflow. Inputs: `days` (7),
@@ -204,5 +243,5 @@ The log line `auth: …` says which one ran. The mode is logged; secrets never a
    `auth: workload identity federation (GitHub OIDC token)`. A rejected exchange
    is a 401 "Authentication failed"; the reason is on the Console's Workload
    identity → History tab.
-7. Once it has worked, delete the `ANTHROPIC_API_KEY` repository secret. Nothing
-   else in the workflows reads it.
+7. Once it has worked, delete the `ANTHROPIC_API_KEY` repository secret. Only
+   the editor jobs read it (in `collect.yml`, `digest.yml` and the backfill).

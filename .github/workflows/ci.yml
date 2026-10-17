@@ -48,6 +48,12 @@ jobs:
       - name: Editor regression suite
         run: npm run test:editor
 
+      # The digest: stories, sections, the fallback, per-field escaping,
+      # Discord's limits, both layouts and the plain-text adapters, against a
+      # fake store and a stubbed fetch. Also checks a preview never sends.
+      - name: Digest regression suite
+        run: npm run test:digest
+
       # A raw NUL makes tooling treat a source file as binary — ripgrep stops
       # reporting line matches and diffs degrade. One reached main on
       # 2026-08-05, so it is now checked rather than noticed by accident.
