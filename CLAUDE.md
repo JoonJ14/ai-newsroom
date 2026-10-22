@@ -21,7 +21,7 @@ AI Newsroom is an open-source, real-time AI/tech news aggregator exposed as an M
 - **Runtime:** Node.js for collectors, Deno for Supabase Edge Functions
 - **Database:** Supabase PostgreSQL (hosted) or SQLite (self-hosted option)
 - **CI/CD:** GitHub Actions: `ci.yml` (PR checks), `collect.yml` (collect, then the AI editor) and `digest.yml` (the AI editor, then the digest; both dispatched on schedule by Supabase Cron), `editor-backfill.yml` (manual), `heartbeat.yml` (weekly keep-alive)
-- **LLM:** Claude Haiku 5.5 via `@anthropic-ai/sdk` for the AI editor. (The digest fallback's optional summary still calls Haiku 4.5 over raw `fetch`, and only with `ANTHROPIC_API_KEY` set for the digest job, which `digest.yml` doesn't do.) On Actions the editor authenticates by workload identity federation, falling back to the `ANTHROPIC_API_KEY` secret
+- **LLM:** Claude Haiku 5.5 via `@anthropic-ai/sdk` for the AI editor and the digest's daily repeat check. (The digest fallback's optional summary still calls Haiku 4.5 over raw `fetch`, and only with `ANTHROPIC_API_KEY`, which the digest job now has for the repeat check.) On Actions both authenticate by workload identity federation, falling back to the `ANTHROPIC_API_KEY` secret
 - **Scheduling:** Supabase Cron (`pg_cron` + `pg_net`) calls GitHub's `workflow_dispatch` API (`supabase/migrations/003_schedule_triggers.sql`)
 - **MCP Protocol:** HTTP transport via Supabase Edge Function
 
@@ -50,8 +50,9 @@ Sources are defined in `config/sources.yaml`. Each source has:
      scoring, slotting, the digest format and the MCP were deliberately left alone.
   2. **AI editor** (done, PR #8): judge each item once, at collection time, and store
      the judgment.
-  3. **The digest built on the judgments** (this step). The MCP, collection and the
-     editor's storage format are unchanged.
+  3. **The digest built on the judgments** (done, PR #9), then a tuning PR from the
+     first five real digests (this one). The MCP, collection and the editor's storage
+     format are unchanged.
   4. **MCP reads the stored judgments**, then redeploy the Edge Function. Adopt
      `src/utils/source-names.ts` for its source names (it has no imports, for Deno).
 - **What step 1 changed** (CHANGELOG has the full list):
@@ -106,6 +107,22 @@ Sources are defined in `config/sources.yaml`. Each source has:
     items fetched while a digest is being built fall in the next window.
   - **A real send moves `last_digest_at`.** Never trigger an extra digest to test; use
     `npm run digest -- --preview --date …` (anon key, never writes).
+- **What the tuning PR adds** (`docs/digest.md`, "Repeats and updates"):
+  - **A daily newspaper**: a story shown in the last 7 days is never shown again unless
+    it develops; then it is one story, headline "Update: ", ranked by its new items only.
+    A small tweak is at most a line in Also notable. Never the same story twice a day.
+  - `digest_state.story_history` (JSON, 7 days, all sections) replaces
+    `last_digest_story_keys` as the memory; the latter is still written, for rollback.
+  - **The repeat check** (`src/digest/repeats.ts`): one Haiku call per digest (effort
+    `medium`, ~$0.002), new / update / repeat per candidate. Its links are checked:
+    copied headline before line number, and a link needs a shared subject name (keys
+    are checked too: the editor reuses keys wrongly sometimes). On failure: the key
+    rule (step 3's, over the 7-day history). The digest job now has `id-token: write`
+    and the Anthropic credentials for it.
+  - Rubric v5 (`2026-10-21.5`): key reuse with examples, follow-ups scored by what is
+    new, retellings 1–3. It moved scores only about a point; the check does the work.
+  - Why-line guard (`src/digest/why.ts`), HN publishers (`PUBLISHERS` in
+    `source-names.ts`), weak sources can't lead below 8, 2 stories per outlet per section.
 - **Reddit is disabled.** It may return later via Reddit's official API, which needs a
   registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - The README's "Status & roadmap" section says the same thing. Keep the two in sync.
@@ -187,7 +204,7 @@ just what a collector happened to pick up.
 GitHub rate limit from 60/hr to 5,000/hr.
 
 ## File Structure
-Generated from `git ls-files` (2026-10-17). Regenerate it from there rather than editing by hand.
+Generated from `git ls-files` (2026-10-21). Regenerate it from there rather than editing by hand.
 ```
 ai-newsroom/
 ├── .github/
@@ -224,6 +241,8 @@ ai-newsroom/
 │   │   ├── generate.ts      # `npm run digest` (--dry-run, --preview): CLI, adapters
 │   │   ├── run.ts           # One run: window, build, deliver, record in digest_state
 │   │   ├── build.ts         # Items → digest document: editor stories, or the fallback
+│   │   ├── repeats.ts       # 7-day story history; the repeat check; the key rule
+│   │   ├── why.ts           # Guard on why-lines that describe coverage
 │   │   ├── render.ts        # Discord plain/embeds and plain text; per-field escaping; limits
 │   │   ├── store.ts         # Supabase reads; the digest_state write
 │   │   ├── config.ts        # Adapter credentials; layout and thresholds from env
@@ -251,7 +270,7 @@ ai-newsroom/
 │       ├── cleanup.ts       # `npm run cleanup`: delete items older than 90 days
 │       ├── scoring.ts       # Relevance score 0-100 (recency / community / tier)
 │       ├── slots.ts         # Slotted display layout (the digest's fallback, preview)
-│       ├── source-names.ts  # Display names for every source (one place; no imports)
+│       ├── source-names.ts  # Display names for every source, publishers by domain (no imports)
 │       ├── dedup.ts         # URL + title-similarity dedup; records coveredBy on the kept row
 │       ├── date-filter.ts   # Skip items older than 7 days
 │       ├── http.ts          # fetch with deadline; every response read or cancelled
@@ -293,13 +312,13 @@ ai-newsroom/
   runs one at a time (`concurrency: collect`); a local run is outside that.
 - `npm run collect -- --source anthropic_blog` — Run a single collector
 - `npm run digest` — Generate and send the digest. Moves `digest_state.last_digest_at`: never run it just to test
-- `npm run digest -- --preview --date YYYY-MM-DD [--layout plain|embeds] [--text]` — Print the digest for a past 9:00 AM ET window from stored judgments; anon key, never sends or writes
+- `npm run digest -- --preview --date YYYY-MM-DD [--layout plain|embeds] [--text] [--history] [--no-repeat-check]` — Print the digest for a past 9:00 AM ET window from stored judgments; replays the 7 mornings before to rebuild the history (repeat check with the local `ANTHROPIC_API_KEY`, ~$0.015); anon key, never sends or writes
 - `npm run digest -- --dry-run` — Print the real next digest without sending (service key)
 - `npm run typecheck` — Type-check `src/` (note: `tsconfig.json` EXCLUDES `supabase/`)
 - `npm run test:mcp` — MCP regression suite; no network or credentials needed
 - `npm run test:collect` — collector regression suite (clean-up, dedup coverage, Anthropic parsers); no network
 - `npm run test:editor` — AI editor regression suite (validation, prompts, caps, editor-column guarantee, selection); no network
-- `npm run test:digest` — digest regression suite (stories, sections, fallback, escaping, Discord limits, layouts, adapters, preview never sends); no network
+- `npm run test:digest` — digest regression suite (stories, sections, repeats and updates, history, why-line guard, publishers, weak sources, caps, fallback, escaping, Discord limits, layouts, adapters, preview never sends); no network
 - `npm run editor` — Judge unjudged items from the last 7 days (needs the service key, so in practice only on Actions)
 - `npm run preview:editor -- --date YYYY-MM-DD [--dry-run] [--all]` — Old digest vs editor for a 9:00 AM ET window; read-only, anon key; `--dry-run` judges in memory with the local `ANTHROPIC_API_KEY`
 - `supabase functions serve mcp` — Run Edge Function locally (this is the MCP server endpoint)
@@ -391,7 +410,8 @@ ANTHROPIC_WORKSPACE_ID=wrkspc_...   # only if the rule covers several workspaces
 
 # Digest (optional; repository VARIABLES on Actions, docs/digest.md)
 DIGEST_LAYOUT=plain   # or embeds
-# Thresholds: DIGEST_TOP_MIN_IMPORTANCE=6, DIGEST_TOP_LIMIT=5, ..., DIGEST_MIN_JUDGED_SHARE=0.5
+# Thresholds: DIGEST_TOP_MIN_IMPORTANCE=6, DIGEST_TOP_LIMIT=5, ..., DIGEST_MIN_JUDGED_SHARE=0.5,
+# DIGEST_TOP_WEAK_SOURCE_MIN_IMPORTANCE=8, DIGEST_MAX_PER_OUTLET=2, DIGEST_REPEAT_EFFORT=medium
 
 # Self-hosted mode (optional, uses SQLite instead of Supabase)
 NEWSROOM_STORAGE=sqlite
