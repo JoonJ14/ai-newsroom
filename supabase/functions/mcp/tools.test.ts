@@ -67,13 +67,14 @@ const called = new Set<string>();
  * use, over `rows`. `noEditorColumns` answers any select naming an editor
  * column with Postgres' undefined_column, as before migration 004.
  */
-function fakeClient(rows: Row[], { noEditorColumns = false } = {}): SupabaseClient {
+function fakeClient(rows: Row[], { noEditorColumns = false, onCount }: { noEditorColumns?: boolean; onCount?: () => void } = {}): SupabaseClient {
   class Query {
     private filters: ((r: Row) => boolean)[] = [];
     private orders: [string, boolean][] = [];
     private max = Infinity;
     private cols = '*';
     private single = false;
+    private countOnly = false;
     constructor() {
       return new Proxy(this, {
         get(target, prop, receiver) {
@@ -82,7 +83,7 @@ function fakeClient(rows: Row[], { noEditorColumns = false } = {}): SupabaseClie
         },
       });
     }
-    select(cols: string) { this.cols = cols; return this; }
+    select(cols: string, o?: { count?: string; head?: boolean }) { this.cols = cols; this.countOnly = Boolean(o?.head); return this; }
     gt(c: string, v: unknown) { this.filters.push((r) => r[c] != null && (r[c] as string) > (v as string)); return this; }
     eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
     not(c: string, op: string, v: unknown) {
@@ -109,6 +110,8 @@ function fakeClient(rows: Row[], { noEditorColumns = false } = {}): SupabaseClie
         return Promise.resolve({ data: null, error: { code: '42703', message: 'column news_items.editor_type does not exist' } })
           .then(resolve, reject);
       }
+      // The count comes after the pages: a test can make a row "commit" in between
+      if (this.countOnly) onCount?.();
       let out = rows.filter((r) => this.filters.every((f) => f(r)));
       out.sort((a, b) => {
         for (const [c, asc] of this.orders) {
@@ -119,6 +122,9 @@ function fakeClient(rows: Row[], { noEditorColumns = false } = {}): SupabaseClie
         }
         return 0;
       });
+      if (this.countOnly) {
+        return Promise.resolve({ data: null, count: out.length, error: null }).then(resolve, reject);
+      }
       out = out.slice(0, this.max);
       // Only the selected columns, as PostgREST returns them
       if (this.cols !== '*') {
@@ -290,6 +296,31 @@ section('get_top_picks — mostly unjudged: the old score order, with a note');
   const all = await handleGetTopPicks(fakeClient(twenty), { showAll: true });
   check('showAll in the fallback: every item, no section or per-source caps', all.sections.flatMap((s) => s.items).length, 20);
   check('without showAll the old caps still apply', (await handleGetTopPicks(fakeClient(twenty), {})).sections.flatMap((s) => s.items).length < 20, true);
+}
+
+section('fallback — officialLimit holds for release entries too');
+{
+  seq = 0;
+  const rows = [row('wired_ai', null, { score: 99, published_at: ago(2) }),
+    row('claude_code_releases', null, { score: 70, source_category: 'github', published_at: ago(2), metadata: { tagName: 'v2.1.310' } })];
+  const official = (r: Awaited<ReturnType<typeof handleGetTopPicks>>) => r.sections.find((s) => s.label === 'Official Announcements')?.items.length ?? 0;
+  check('officialLimit 0 leaves no official entries, releases included', official(await handleGetTopPicks(fakeClient(rows), { officialLimit: 0 })), 0);
+  check('without a limit the release is shown', official(await handleGetTopPicks(fakeClient(rows), {})), 1);
+}
+
+section('paged reads — rows committed mid-scan are reported, not silently missed');
+{
+  seq = 0;
+  const rows = Array.from({ length: 1001 }, () => row('techcrunch_ai', { importance: 5 }, { fetched_at: ago(2) }));
+  // A collector batch that began before the cutoff commits between pages:
+  // its row's id sorts below the cursor, and its fetched_at is in the window
+  const late = row('wired_ai', { importance: 5 }, { id: '00000000-0000-0000-0000-000000000000', fetched_at: ago(2) });
+  let inserted = false;
+  const store = [...rows];
+  const sb = fakeClient(store, { onCount: () => { if (!inserted) { store.push(late); inserted = true; } } });
+  const res = await handleGetNewSince(sb, { since: ago(24) });
+  check('a complete scan is not marked truncated when nothing moved', (await handleGetNewSince(fakeClient(rows), { since: ago(24) })).truncated, undefined);
+  check('a row that appeared mid-scan marks the answer truncated', [res.truncated, /oldest are not included/.test(res.text)], [true, true]);
 }
 
 section('search — every match ranked and filtered, not the top 100 by score first');

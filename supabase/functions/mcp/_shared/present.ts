@@ -245,6 +245,15 @@ export function topPicks(items: StoredItem[], opts: TopPicksOptions = {}): TopPi
     const sorted = [...items].sort((a, b) => getRelevanceScore(b) - getRelevanceScore(a));
     const pool = opts.showAll ? sorted : sorted.slice(0, FALLBACK_POOL);
     const display = buildSlottedDisplay(pool, opts.showAll ? SLOTS_ALL : opts.legacy ?? {});
+    // The shared slots add release entries after capping blogs, so they can run
+    // past officialLimit. The digest's fallback keeps that as it is; here the
+    // caller's limit holds, as it did in the MCP's own slotting before
+    const officialLimit = opts.showAll ? undefined : opts.legacy?.officialLimit;
+    if (officialLimit !== undefined && Number.isFinite(officialLimit)) {
+      const official = display.sections.find((s) => s.label === 'Official Announcements');
+      if (official) official.items = official.items.slice(0, Math.max(0, Math.floor(officialLimit)));
+      display.sections = display.sections.filter((s) => s.items.length > 0);
+    }
     return {
       mode: 'fallback',
       // Score order, but an item the editor did rate keeps its judgment

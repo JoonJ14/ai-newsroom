@@ -51,6 +51,12 @@ function applyFilter(q: Query, f: RowFilter): Query {
  * collector batch landing mid-read can't shift the pages, and paging seeks on
  * `id`, which is unique and never updated, rather than on the mutable score.
  * The order of the result doesn't matter: the callers rank it themselves.
+ *
+ * Completeness is then checked against a count over the same window, taken
+ * after the scan: `fetched_at` is transaction-start time, so a collector
+ * batch that began before the cutoff can commit mid-scan inside the window,
+ * and its ids below the cursor are missed. The count makes that visible as
+ * `truncated` instead of a silently partial answer.
  */
 export async function fetchRows(sb: SupabaseClient, filter: RowFilter = {}, maxRows = 5000): Promise<FetchResult> {
   const cutoff = new Date().toISOString();
@@ -78,9 +84,15 @@ export async function fetchRows(sb: SupabaseClient, filter: RowFilter = {}, maxR
     const rows = (data ?? []) as Row[];
     items.push(...rows.map(rowToItem));
     if (items.length > maxRows) return { items: items.slice(0, maxRows), truncated: true, editorColumns };
-    if (rows.length < want) return { items, truncated: false, editorColumns };
+    if (rows.length < want) break;
     cursor = rows[rows.length - 1].id;
   }
+
+  const { count, error: countError } = await applyFilter(
+    sb.from('news_items').select('id', { count: 'exact', head: true }), filter,
+  ).or(`fetched_at.lte.${cutoff},fetched_at.is.null`);
+  if (countError) throw new Error(countError.message);
+  return { items, truncated: (count ?? items.length) > items.length, editorColumns };
 }
 
 /** The newest rows of a source, by fetched_at: get_source_updates' starting set. */
