@@ -91,6 +91,8 @@ const RULE_VARS: Record<keyof SectionRules, string> = {
   builderMinImportance: 'DIGEST_BUILDERS_MIN_IMPORTANCE',
   paperLimit: 'DIGEST_PAPER_LIMIT',
   paperMinImportance: 'DIGEST_PAPER_MIN_IMPORTANCE',
+  weakSourceTopMinImportance: 'DIGEST_TOP_WEAK_SOURCE_MIN_IMPORTANCE',
+  maxPerOutlet: 'DIGEST_MAX_PER_OUTLET',
 };
 
 /**
@@ -113,8 +115,8 @@ export function digestSettings(env: Env = process.env): DigestSettings {
     const raw = env[name]?.trim();
     if (!raw) continue;
     const n = Number(raw);
-    const isLimit = field.endsWith('Limit');
-    const [min, max] = isLimit ? [0, 10] : [1, 10];
+    // Limits may be 0 (a section switched off); 11 switches the weak-source exception off
+    const [min, max] = field.endsWith('Limit') ? [0, 10] : field === 'weakSourceTopMinImportance' ? [1, 11] : [1, 10];
     if (Number.isInteger(n) && n >= min && n <= max) rules[field] = n;
     else warnings.push(`${name} must be an integer from ${min} to ${max}, got "${raw}"; using ${rules[field]}`);
   }

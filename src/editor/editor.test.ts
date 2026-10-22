@@ -20,7 +20,7 @@ import {
   buildItemInput, buildPrompt, loadRubric, parseRubric, selectKnownStories, tagSafeJson, type KnownStory,
 } from './prompt.js';
 import { runEditor, type EditorCaps } from './run.js';
-import { buildSections, groupStories, missedByOldDigest, sourceDirectory, type JudgedItem } from './select.js';
+import { buildSections, DEFAULT_RULES, groupStories, missedByOldDigest, sourceDirectory, type JudgedItem } from './select.js';
 import { digestWindow, nyWallTime, parseWindow } from './window.js';
 
 let passed = 0;
@@ -339,7 +339,8 @@ function judged(id: string, source: string, j: Partial<JudgedItem['judgment']>, 
   check('lead: same importance, the lab post wins', gpt6.lead.id, 'oa');
   check('outlets: every copy and its coveredBy, once each', gpt6.outlets, ['OpenAI', 'TechCrunch', 'Hacker News', 'The Verge']);
 
-  const view = buildSections(stories, dir);
+  // The per-outlet cap is tested in digest.test.ts; these all come from The Verge
+  const view = buildSections(stories, { rules: { ...DEFAULT_RULES, maxPerOutlet: 10 } });
   // g2/g5/g8 are 6, g4/g7 are 5, g3/g6 are 4
   check('top 5: by importance, then outlets', view.top.map((s) => s.key), ['kb1', 'gpt6', 'klab', 'kg2', 'kg5']);
   check('also notable: next ones at 4+, none repeated', view.alsoNotable.map((s) => s.key), ['kg8', 'kg4', 'kg7', 'kg3', 'kg6']);
