@@ -1,17 +1,22 @@
 /**
- * What the digest reads and writes in Supabase. `digest_state` holds two keys:
+ * What the digest reads and writes in Supabase. `digest_state` holds:
  *   last_digest_at          when the last digest's window ended. The next one
  *                           starts there, and the 9:30 missed-digest alarm
  *                           (migration 003) reads it.
- *   last_digest_story_keys  the story keys it showed, by section, as JSON, so
- *                           the next digest doesn't lead with them again.
- * Both are written together after a digest is sent, never by a preview.
+ *   story_history           every story shown in the last 7 days, any section,
+ *                           as JSON (repeats.ts): key, headline, section, date,
+ *                           newest fetched_at. The repeat check reads it.
+ *   last_digest_story_keys  the last digest's keys by section (step 3). Still
+ *                           written, for a rollback; read only to seed the
+ *                           history the first time.
+ * All are written together after a digest is sent, never by a preview.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { editorColumnsReadable, fetchItems, type StoredItem } from '../editor/db.js';
 import { createLogger } from '../utils/logger.js';
 import type { ShownStories } from './build.js';
+import { historyFromLegacy, parseHistory, type HistoryEntry } from './repeats.js';
 
 const log = createLogger('digest');
 
@@ -24,10 +29,13 @@ export interface WindowItems {
 export interface DigestStore {
   /** When the last digest's window ended; null if never set or not readable. */
   lastDigestAt(): Promise<string | null>;
-  /** The story keys the last digest showed; null if none recorded. */
-  lastShown(): Promise<ShownStories | null>;
+  /**
+   * Stories shown in the last 7 days. Before the first digest that stores a
+   * history, the step-3 keys of the last digest stand in; else empty.
+   */
+  history(): Promise<HistoryEntry[]>;
   items(from: Date, to: Date): Promise<WindowItems>;
-  save(windowEnd: string, shown: ShownStories): Promise<void>;
+  save(windowEnd: string, shown: ShownStories, history: HistoryEntry[]): Promise<void>;
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -77,14 +85,19 @@ export function supabaseStore(sb: SupabaseClient, { readOnly = false } = {}): Di
 
   return {
     lastDigestAt: () => read('last_digest_at'),
-    lastShown: async () => parseShown(await read('last_digest_story_keys')),
+    history: async () => {
+      const stored = parseHistory(await read('story_history'));
+      if (stored) return stored;
+      return historyFromLegacy(parseShown(await read('last_digest_story_keys')), await read('last_digest_at'));
+    },
     items: (from, to) => readWindow(sb, from, to),
-    save: async (windowEnd, shown) => {
+    save: async (windowEnd, shown, history) => {
       if (readOnly) throw new Error('a read-only digest store never writes digest_state');
       const now = new Date().toISOString();
       const { error } = await sb.from('digest_state').upsert([
         { key: 'last_digest_at', value: windowEnd, updated_at: now },
         { key: 'last_digest_story_keys', value: JSON.stringify(shown), updated_at: now },
+        { key: 'story_history', value: JSON.stringify(history), updated_at: now },
       ]);
       if (error) throw new Error(`digest_state update failed: ${error.message}`);
     },

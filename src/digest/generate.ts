@@ -7,24 +7,35 @@
  *   npm run digest -- --preview --date 2026-10-16    # a past 9:00 AM ET window, read-only
  *   … --layout plain|embeds                          # override DIGEST_LAYOUT
  *   … --text                                         # also print the Slack/Telegram/iMessage rendering
+ *   … --no-repeat-check                              # the key rule instead of the model's repeat check
+ *   … --history                                      # also print the 7-day history it was checked against
  *
  * The digest is built from the AI editor's stored judgments (docs/digest.md).
  * digest.yml runs the editor first, so the window is judged; if most of it
  * still isn't, the old ranking is used and the footer says so.
  *
- * --preview reads with SUPABASE_ANON_KEY and never sends or writes. --dry-run
- * needs the service key, to read digest_state.
+ * Before sectioning, one Claude call checks the candidates against the last 7
+ * days of shown stories for repeats and updates (repeats.ts), with the
+ * editor's credentials. Without credentials, or if it fails, the key rule.
+ *
+ * --preview reads with SUPABASE_ANON_KEY and never sends or writes; it
+ * replays the 7 mornings before its date to rebuild the history, running the
+ * check on each with the local ANTHROPIC_API_KEY. --dry-run needs the
+ * service key, to read digest_state.
  */
 
 import 'dotenv/config';
 import { appendFileSync } from 'node:fs';
 import { createLogger } from '../utils/logger.js';
 import type { NewsItem } from '../collectors/types.js';
+import { authMode, AUTH_DESCRIPTIONS, createAnthropicClient, emptyUsage, addUsage, estimateCostUsd, type Usage } from '../editor/client.js';
+import { DEFAULT_MODEL } from '../editor/config.js';
 import { loadSources, readClient, serviceClient } from '../editor/db.js';
 import { sourceDirectory } from '../editor/select.js';
 import { formatNy } from '../editor/window.js';
 import { DIGEST_LAYOUTS, digestSettings, loadDigestConfig, type DigestLayout } from './config.js';
 import { discordPayloads, renderText, type DigestDocument } from './render.js';
+import { apiRepeatCall, REPEAT_EFFORT, type RepeatCall } from './repeats.js';
 import { runDigest, type RunMode, type RunResult } from './run.js';
 import { supabaseStore } from './store.js';
 import { sendDiscordDigest } from './adapters/discord.js';
@@ -107,13 +118,49 @@ async function sendToAdapter(adapter: string, doc: DigestDocument, layout: Diges
   }
 }
 
+/** The repeat check's call, with the editor's credentials and model; undefined without credentials. */
+function repeatCallFromEnv(): { call?: RepeatCall; model: string; auth: string } {
+  const model = process.env.EDITOR_MODEL?.trim() || DEFAULT_MODEL;
+  const mode = authMode();
+  if (mode === 'none') return { model, auth: AUTH_DESCRIPTIONS.none };
+  const raw = process.env.DIGEST_REPEAT_EFFORT?.trim();
+  const effort = raw === 'low' || raw === 'medium' || raw === 'high' ? raw : undefined;
+  if (raw && !effort) annotate(`DIGEST_REPEAT_EFFORT must be low, medium or high, got "${raw}"; using ${REPEAT_EFFORT}`);
+  return {
+    call: apiRepeatCall(createAnthropicClient(mode), model, effort ? { effort } : {}),
+    model,
+    auth: `${AUTH_DESCRIPTIONS[mode]}, effort ${effort ?? REPEAT_EFFORT}`,
+  };
+}
+
+/** Wraps a call to add up its token use across a preview's replayed mornings. */
+function counted(call: RepeatCall | undefined, total: Usage): RepeatCall | undefined {
+  if (!call) return undefined;
+  return async (prompt) => {
+    const res = await call(prompt);
+    addUsage(total, res.usage);
+    return res;
+  };
+}
+
+function logRepeats(result: RunResult) {
+  const rc = result.repeatCheck;
+  if (!rc) return;
+  log.info(`Repeat check: ${rc.mode === 'model' ? 'model' : `key rule (${rc.failure ?? 'not run'})`}`);
+  for (const line of rc.log) log.info(`  ${line}`);
+  for (const fix of result.whyFixes) log.info(`Why-line guard: ${fix}`);
+}
+
 function printDigest(result: RunResult, layout: DigestLayout, withText: boolean) {
   const rule = (title: string) => console.log(`\n${'━'.repeat(72)}\n${title}\n${'━'.repeat(72)}`);
+  const rc = result.repeatCheck;
   rule(
     `Digest for ${formatNy(result.window.to)} · window ${formatNy(result.window.from)} → ${formatNy(result.window.to)}\n` +
-      `${result.mode === 'editor' ? 'AI editor' : result.mode}: ${result.judged}/${result.total} judged` +
-      (result.repeats.length ? ` · left out as repeats: ${result.repeats.join(', ')}` : '') +
-      (result.ledBefore.length ? `\nPrevious top stories: ${result.ledBefore.join(', ')}` : ''),
+      `${result.mode === 'editor' ? 'AI editor' : result.mode}: ${result.judged}/${result.total} judged · ` +
+      `history: ${result.historyBefore.length} stories shown in the last 7 days` +
+      (rc ? `\nRepeat check: ${rc.mode === 'model' ? 'model' : `key rule (${rc.failure ?? 'not run'})`}` : '') +
+      (rc?.log.length ? `\n${rc.log.map((l) => `  ${l}`).join('\n')}` : '') +
+      (result.whyFixes.length ? `\nWhy-line guard:\n${result.whyFixes.map((l) => `  ${l}`).join('\n')}` : ''),
   );
   const payloads = discordPayloads(result.doc, layout);
   if (layout === 'plain') {
@@ -127,6 +174,10 @@ function printDigest(result: RunResult, layout: DigestLayout, withText: boolean)
       console.log(`\n── Discord message ${i + 1} of ${payloads.length}: ${p.embeds?.length ?? 0} embeds, ${chars} characters ──\n`);
       console.log(JSON.stringify(p, null, 2));
     });
+  }
+  if (process.argv.includes('--history')) {
+    rule('Story history it was checked against (newest first)');
+    for (const h of result.historyBefore) console.log(`  ${h.date} ${h.section.padEnd(11)} ${h.key.padEnd(44)} ${h.headline}`);
   }
   if (withText) {
     rule('Plain-text rendering (Slack, Telegram, iMessage)');
@@ -149,7 +200,10 @@ async function main() {
   const date = argValue('--date');
   if (preview && !date) throw new Error('--preview needs --date YYYY-MM-DD');
 
-  log.info(`Starting digest (${mode}, ${layout} layout)`);
+  const noCheck = process.argv.includes('--no-repeat-check');
+  const repeat = noCheck ? { model: '', auth: 'off (--no-repeat-check)' } : repeatCallFromEnv();
+  const repeatUsage = emptyUsage();
+  log.info(`Starting digest (${mode}, ${layout} layout); repeat check: ${repeat.model ? `${repeat.model}, ` : ''}${repeat.auth}`);
 
   // Validates the adapter's credentials; previews and dry runs send nothing
   const adapter = mode === 'send' ? loadDigestConfig().adapter : 'discord';
@@ -166,14 +220,24 @@ async function main() {
     dir: sourceDirectory(sources),
     deliver: (doc, l) => sendToAdapter(adapter, doc, l),
     summarize: generateAISummary,
+    repeatCall: counted(repeat.call, repeatUsage),
+    onReplay: (day, p) => log.info(
+      `Replayed ${day}: ${p.shown.top.length + p.shown.alsoNotable.length + p.shown.builders.length + p.shown.paper.length} shown, ` +
+        `${p.repeats.length} repeats left out (${p.repeatCheck?.mode ?? p.mode})`,
+    ),
   });
+  const cost = repeat.model ? estimateCostUsd(repeat.model, repeatUsage) : null;
+  const tokens = `${repeatUsage.inputTokens} input, ${repeatUsage.outputTokens} output` +
+    `${cost !== null ? ` (~$${cost.toFixed(4)})` : ''}`;
 
   log.info(
     `Window ${result.window.from.toISOString()} → ${result.window.to.toISOString()}: ${result.total} items, ` +
       `${result.judged} judged, ${result.unjudged} not yet rated`,
   );
   if (result.mode === 'fallback') annotate(`AI editor unavailable, basic ranking used: ${result.reason}.`);
-  if (result.repeats.length) log.info(`Left out, led the previous digest: ${result.repeats.join(', ')}`);
+  logRepeats(result);
+  if (result.repeatCheck?.mode === 'keys' && repeat.call) annotate(`Repeat check failed, key rule used: ${result.repeatCheck.failure}.`);
+  log.info(`Repeat check tokens${mode === 'preview' ? ' (all replayed mornings)' : ''}: ${tokens}`);
 
   if (mode === 'send') {
     log.info(`Digest sent via ${adapter}`);
@@ -194,7 +258,10 @@ async function main() {
         `| Layout | ${layout} |`,
         `| Items | ${result.total} (${result.judged} judged, ${result.unjudged} not yet rated) |`,
         `| Top stories | ${result.shown.top.join(', ') || '—'} |`,
-        `| Repeats left out | ${result.repeats.join(', ') || '—'} |`,
+        `| Repeat check | ${result.repeatCheck ? (result.repeatCheck.mode === 'model' ? `${repeat.model}, ${tokens}` : `key rule: ${result.repeatCheck.failure}`) : '—'} |`,
+        `| Repeats left out | ${result.repeats.map((r) => r.key).join(', ') || '—'} |`,
+        `| Updates found | ${result.repeatCheck?.log.filter((l) => / update of /.test(l)).length ?? 0} |`,
+        `| Why-lines replaced or dropped | ${result.whyFixes.length} |`,
         '',
       ].join('\n'),
     );
