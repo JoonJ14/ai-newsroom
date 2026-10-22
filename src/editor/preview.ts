@@ -151,9 +151,9 @@ async function main() {
 
   const dir = sourceDirectory(sources);
   const stories = groupStories(judged, dir);
-  // The digest's sections and default thresholds, without its repeat rule
-  // (yesterday's top stories need digest_state); `npm run digest -- --preview` has it
-  const view = buildSections(stories, dir);
+  // The digest's sections and default thresholds, without its repeat check
+  // (that needs the last 7 days of digests); `npm run digest -- --preview` has it
+  const view = buildSections(stories);
   console.log(`${stories.length} stories.`);
   printStories('Top stories', view.top);
   printStories('Also notable', view.alsoNotable);

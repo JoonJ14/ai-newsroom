@@ -67,7 +67,7 @@ The system prompt, word for word, minus HTML comments. Tune it there without
 touching code. Its first line is the version:
 
 ```
-<!-- rubric-version: 2026-10-17.4 -->
+<!-- rubric-version: 2026-10-21.5 -->
 ```
 
 **Bump it on every change.** It is stored with each judgment, so you can tell
@@ -77,11 +77,30 @@ in the rubric alone does nothing.
 
 The test it is built around: *would someone who follows AI be annoyed to learn
 about this a week late?* The importance scale is anchored with real examples.
-Several come from the Oct 8, Oct 13 and Oct 16 windows, so previews of those
-days flatter it; judge rubric changes on other days too.
+Several come from the Oct 8, Oct 13, Oct 16 and Oct 18–21 windows, so previews
+of those days flatter it; judge rubric changes on other days too.
 
 ### Version history
 
+- **`2026-10-21.5`**, from the first five real digests (Oct 17–21):
+  - **Key reuse:** before making a new key, look in `<known_stories>` for the
+    same company or people and the same underlying event, and reuse its key
+    even for a later development or a smaller part of it. The examples are the
+    cases that slipped through: Disney and Character.AI, OpenAI's test hacking,
+    Meta's terms, MI5.
+  - **Follow-up importance:** score a follow-up by what is new in it, never the
+    known story's importance.
+  - **Retellings** (recaps, explainers, podcasts, videos, opinion on a covered
+    story) are not follow-ups and score 1–3.
+
+  A dry run of Oct 18–21 against the stored v4 judgments:
+  - Key reuse got better: WIRED's Disney piece reused `characterai-bankruptcy`.
+  - Follow-up scores moved about a point: the OpenAI government-website
+    retelling 7 → 6, Meta's "train" tweak 6 → 5, the Guardian's MI5 podcast
+    5 → 2. The MI5 video stayed at 5.
+
+  The rubric alone doesn't stop repeats. The digest's repeat check does
+  (`docs/digest.md`); v5 makes its key fallback and grouping more reliable.
 - **`2026-10-17.4`** (step 3). From a preview of Oct 16, where judgments were
   sound overall but:
   - **Regulators and governments**: an investigation, a government lawsuit or

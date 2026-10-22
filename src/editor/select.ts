@@ -8,7 +8,7 @@
 
 import type { NewsItem, SourceConfig } from '../collectors/types.js';
 import type { Coverage } from '../utils/dedup.js';
-import { sourceDisplayName } from '../utils/source-names.js';
+import { itemOutlet, knownPublisher, sourceDisplayName } from '../utils/source-names.js';
 import type { Audience, EditorType } from './judgment.js';
 import { OFFICIAL_LAB_SOURCES } from './prompt.js';
 
@@ -36,6 +36,26 @@ export interface Story {
   outlets: string[];
   /** One of its items is a genuine new development on an earlier story. */
   followup: boolean;
+  /** The lead's outlet for per-outlet caps: the publisher, so "Reuters (via HN)" counts as Reuters. */
+  leadOutlet: string;
+  /**
+   * Carried by at least one source a reader can trust to lead the digest: an
+   * official lab, a wire service, the tier-1/2 press, or an HN link to a known
+   * publisher. Counts the copies in coveredBy too.
+   */
+  strongSource: boolean;
+  /** Set when the story continues one already shown (src/digest/repeats.ts). */
+  update?: StoryUpdate;
+}
+
+export interface StoryUpdate {
+  /** The history entry's key it continues. */
+  continues: string;
+  /** What is new, in a few words; logged. */
+  newFact: string;
+  /** A small tweak rather than a real development: never a top story. */
+  minor: boolean;  /** Every story key merged into it, items left out included: all go in the history. */
+  keys?: string[];
 }
 
 /** Sources whose items are papers. */
@@ -117,22 +137,45 @@ function coverageOf(item: NewsItem): Coverage[] {
   return Array.isArray(item.metadata?.coveredBy) ? (item.metadata!.coveredBy as Coverage[]) : [];
 }
 
-export function makeStory(key: string, items: JudgedItem[], dir: SourceDirectory): Story {
-  const sorted = orderForLead(items, dir);
-  const outlets: string[] = [];
-  for (const item of sorted) {
-    for (const source of [item.source, ...coverageOf(item).map((c) => c.source)]) {
-      const name = dir.name(source);
-      if (!outlets.includes(name)) outlets.push(name);
-    }
+/** Every copy of a story: its rows, and the copies dedup folded into them. */
+function copiesOf(items: JudgedItem[]): { source: string; url: string }[] {
+  return items.flatMap((i) => [{ source: i.source, url: i.url }, ...coverageOf(i).map((c) => ({ source: c.source, url: c.url ?? '' }))]);
+}
+
+/**
+ * Outlet names in order of preference, once each. An HN link names its
+ * publisher ("The Guardian (via HN)"), and is dropped when that publisher
+ * also carried the story directly.
+ */
+export function storyOutlets(items: JudgedItem[]): string[] {
+  const copies = copiesOf(items).map((c) => itemOutlet(c.source, c.url));
+  const direct = new Set(copies.filter((c) => !c.viaHN).map((c) => c.publisher));
+  const names: string[] = [];
+  for (const c of copies) {
+    if (c.viaHN && direct.has(c.publisher)) continue;
+    if (!names.includes(c.name)) names.push(c.name);
   }
+  return names;
+}
+
+/** A copy from a source that can lead the digest (see Story.strongSource). */
+export function isStrongCopy(copy: { source: string; url: string }, dir: SourceDirectory): boolean {
+  if (OFFICIAL_LAB_SOURCES.has(copy.source) || isWireUrl(copy.url) || dir.isPress(copy.source)) return true;
+  return itemOutlet(copy.source, copy.url).viaHN && knownPublisher(copy.url) !== undefined;
+}
+
+export function makeStory(key: string, items: JudgedItem[], dir: SourceDirectory, update?: StoryUpdate): Story {
+  const sorted = orderForLead(items, dir);
   return {
     key,
     lead: sorted[0],
     items: sorted,
     importance: Math.max(...sorted.map((i) => i.judgment.importance)),
-    outlets,
+    outlets: storyOutlets(sorted),
     followup: sorted.some((i) => i.judgment.followup),
+    leadOutlet: itemOutlet(sorted[0].source, sorted[0].url).publisher,
+    strongSource: copiesOf(sorted).some((c) => isStrongCopy(c, dir)),
+    ...(update ? { update } : {}),
   };
 }
 
@@ -179,6 +222,10 @@ export interface SectionRules {
   builderMinImportance: number;
   paperLimit: number;
   paperMinImportance: number;
+  /** A story with no strong source (Story.strongSource) can be a top story only at this importance. */
+  weakSourceTopMinImportance: number;
+  /** Stories per section with the same lead outlet. */
+  maxPerOutlet: number;
 }
 
 export const DEFAULT_RULES: SectionRules = {
@@ -192,6 +239,8 @@ export const DEFAULT_RULES: SectionRules = {
   paperLimit: 1,
   // The rubric: only genuinely notable papers score above 5, one or two a week
   paperMinImportance: 6,
+  weakSourceTopMinImportance: 8,
+  maxPerOutlet: 2,
 };
 
 export interface DigestSections {
@@ -199,53 +248,59 @@ export interface DigestSections {
   alsoNotable: Story[];
   builders: Story[];
   paper: Story[];
-  /** Stories left out because they led the previous digest and nothing new happened. */
-  repeats: Story[];
 }
 
-/**
- * Yesterday's top stories don't come back unless something new happened: a
- * story whose key led the previous digest is kept only when one of its items
- * is a follow-up, and then only its follow-up items represent it.
- */
-export function dropRepeats(
-  stories: Story[],
-  ledBefore: ReadonlySet<string>,
-  dir: SourceDirectory,
-): { kept: Story[]; repeats: Story[] } {
-  const kept: Story[] = [];
-  const repeats: Story[] = [];
-  for (const s of stories) {
-    if (!ledBefore.has(s.key)) kept.push(s);
-    else if (s.followup) kept.push(makeStory(s.key, s.items.filter((i) => i.judgment.followup), dir));
-    else repeats.push(s);
-  }
-  return { kept, repeats };
+/** The lowest importance any section takes: stories below it can't appear anywhere. */
+export function minShownImportance(rules: SectionRules): number {
+  return Math.min(rules.topMinImportance, rules.notableMinImportance, rules.builderMinImportance, rules.paperMinImportance);
+}
+
+/** Whether a story may be a top story: important enough, from a source that can lead, and not a small tweak. */
+export function topEligible(s: Story, rules: SectionRules): boolean {
+  if (s.update?.minor) return false;
+  return s.strongSource || s.importance >= rules.weakSourceTopMinImportance;
 }
 
 /**
  * The digest's sections, each story in at most one. A quiet day shows fewer
- * stories, never filler: every section has a minimum importance.
+ * stories, never filler: every section has a minimum importance. Within a
+ * section, at most `maxPerOutlet` stories share a lead outlet; one over the
+ * cap, or kept out of Top stories, can still go to a later section it
+ * qualifies for, never into one it doesn't.
+ *
+ * Repeats are dealt with before this (src/digest/repeats.ts): `stories` are
+ * the ones still to show, updates already cut down to their new items.
  */
 export function buildSections(
   stories: Story[],
-  dir: SourceDirectory,
-  { rules = DEFAULT_RULES, ledBefore = new Set<string>() }: { rules?: SectionRules; ledBefore?: ReadonlySet<string> } = {},
+  { rules = DEFAULT_RULES }: { rules?: SectionRules } = {},
 ): DigestSections {
-  const { kept, repeats } = dropRepeats(stories, ledBefore, dir);
-  const ranked = rankStories(kept);
+  const ranked = rankStories(stories);
   const shown = new Set<Story>();
-  const take = (list: Story[], limit: number) => {
-    const picked = list.filter((s) => !shown.has(s)).slice(0, limit);
-    picked.forEach((s) => shown.add(s));
+  const take = (list: Story[], limit: number, perOutlet = new Map<string, number>()) => {
+    const picked: Story[] = [];
+    for (const s of list) {
+      if (picked.length >= limit) break;
+      if (shown.has(s)) continue;
+      const n = perOutlet.get(s.leadOutlet) ?? 0;
+      if (n >= rules.maxPerOutlet) continue;
+      perOutlet.set(s.leadOutlet, n + 1);
+      picked.push(s);
+      shown.add(s);
+    }
     return picked;
   };
 
   const news = ranked.filter((s) => !isPaper(s));
-  const topGeneral = take(news.filter((s) => isGeneral(s) && s.importance >= rules.topMinImportance), rules.topLimit);
+  const topOutlets = new Map<string, number>();
+  const topGeneral = take(
+    news.filter((s) => isGeneral(s) && s.importance >= rules.topMinImportance && topEligible(s, rules)),
+    rules.topLimit, topOutlets,
+  );
   const topBuilder = take(
-    news.filter((s) => !isGeneral(s) && s.importance >= Math.max(rules.topMinImportance, rules.topBuilderMinImportance)),
-    rules.topLimit - topGeneral.length,
+    news.filter((s) => !isGeneral(s) && s.importance >= Math.max(rules.topMinImportance, rules.topBuilderMinImportance) &&
+      topEligible(s, rules)),
+    rules.topLimit - topGeneral.length, topOutlets,
   );
   const top = rankStories([...topGeneral, ...topBuilder]);
   const alsoNotable = take(news.filter((s) => isGeneral(s) && s.importance >= rules.notableMinImportance), rules.notableLimit);
@@ -254,7 +309,7 @@ export function buildSections(
     ranked.filter((s) => (isPaper(s) || s.lead.judgment.type === 'research') && s.importance >= rules.paperMinImportance),
     rules.paperLimit,
   );
-  return { top, alsoNotable, builders, paper, repeats };
+  return { top, alsoNotable, builders, paper };
 }
 
 const rowKey = (i: { source: string; url: string }) => `${i.source}\n${i.url}`;

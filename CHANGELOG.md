@@ -12,6 +12,51 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+**Digest tuning, from the first five real digests (Oct 17–21)**
+
+- **Repeats and updates, like a daily newspaper.** Nothing is padded in to
+  replace a dropped story.
+  - A story shown in the last 7 days, in any section, is not shown again
+    unless it develops.
+  - A genuine development is shown once, prefixed **"Update: "** in every
+    layout. It is ranked by its new items only (fetched since it was shown);
+    the original story's importance never carries over.
+  - A small tweak is at most one line in Also notable.
+  - The same story never appears twice in one digest.
+- **`digest_state.story_history`** (JSON, pruned to 7 days): key, headline,
+  section, date and newest `fetched_at` of every shown story. No migration.
+  The first run seeds it from `last_digest_story_keys`, which is still written.
+- **The repeat check** (`src/digest/repeats.ts`): one Claude Haiku 5.5 call per
+  digest.
+  - It sorts each candidate into new, update (with what is new, and whether
+    it is minor) or repeat.
+  - It uses structured outputs, the editor's credentials and injection rules,
+    effort `medium` and a 12,000-token cap. A day costs about $0.002, and the
+    step summary logs its tokens and cost.
+  - The model's links are checked: the copied headline is matched before the
+    line number, and a link needs a shared subject name. Key matches get the
+    same check.
+  - If the call fails, the key rule applies and the digest sends anyway.
+- **Why-line guard** (`src/digest/why.ts`): why-lines that describe the
+  coverage instead of the news ("matches the existing … coverage", "a video
+  explainer on a speech already covered") are replaced with another item's, or
+  dropped, and logged. The patterns come from the stored why-lines of
+  Oct 12–21: 80 of 1,465 trip it.
+- **Publishers for HN links**: "Reuters (via HN)", or the bare domain when it's
+  unknown. A publisher also carried directly is listed once. `PUBLISHERS` in
+  `src/utils/source-names.ts`.
+- **Weak sources don't lead.** A top story needs a copy from an official lab,
+  a wire service, the tier-1/2 press or a known publisher via HN, unless it is
+  rated 8+ (`DIGEST_TOP_WEAK_SOURCE_MIN_IMPORTANCE`).
+- **Variety**: at most 2 stories per lead outlet in each section
+  (`DIGEST_MAX_PER_OUTLET`).
+- **Preview**:
+  - replays the 7 mornings before the date to rebuild the history, with the
+    repeat check in memory (local key, about $0.015);
+  - `--no-repeat-check` uses the key rule instead;
+  - `--history` prints what each morning was checked against.
+- `npm run test:digest`: 140 assertions.
+
 **The digest, rebuilt on the editor's judgments (ranking rebuild, step 3 of 4)**
 
 - **Stories, not items.** Judged items grouped by `editor_story_key`, each with
@@ -324,6 +369,26 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   touch the database, but the client was constructed before routing.
 
 ### Changed
+
+**Digest tuning**
+
+- **Rubric v5** (`2026-10-21.5`):
+  - reuse a known story's key for the same underlying event, with examples
+    from Oct 17–21;
+  - score a follow-up by what is new in it;
+  - recaps, explainers, podcasts, videos and opinion on a covered story score
+    1–3.
+
+  A dry run moved those scores about a point. Stored judgments are not redone.
+- **The step-3 repeat rule is replaced.** It left out only the previous
+  morning's top stories, and let back anything flagged as a follow-up, which
+  the editor flags generously. The repeat check covers all sections for 7 days;
+  the key rule, used when the check fails, applies the old logic over the
+  7-day history.
+- **`digest.yml`'s digest job** now has `id-token: write` and the Anthropic
+  credentials, for the repeat check. With the key there, a fallback digest gets
+  its optional AI summary again.
+- Outlets name HN publishers in the fallback too.
 
 **The digest (ranking rebuild, step 3 of 4)**
 
