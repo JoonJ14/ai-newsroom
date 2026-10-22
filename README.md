@@ -14,11 +14,11 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 
 ## Status & roadmap
 
-- **Ranking rebuild in progress: step 3 of 4 is live, being tuned.** The four steps, each its own PR:
+- **The ranking rebuild is complete.** The four steps, each its own PR:
   1. Fix collection: broken and dead sources, title clean-up, cross-source coverage in dedup (done).
   2. An AI editor that judges each item once, at collection time, and stores the judgment (done). Claude Haiku 5.5 reads each item against a written rubric (`config/editor-rubric.md`) and stores its type, importance (1–10), audience, a plain headline, why it matters, and a story key that groups copies and follow-ups. Details: [`docs/editor.md`](docs/editor.md).
   3. The daily digest built on the judgments (done, now being tuned). Stories instead of items: Top stories, Also notable, For builders and a Paper of note, each with a plain headline, a why-it-matters line and the outlets that carried it, as clickable links. The editor runs just before the digest. If its judgments are missing, the digest falls back to the old ranking and the footer says so. Two Discord layouts, `plain` (default) and `embeds`, chosen with the `DIGEST_LAYOUT` variable. Preview any past morning with `npm run digest -- --preview --date YYYY-MM-DD`. Since the first week's tuning it works like a daily newspaper: a story already shown in the last 7 days isn't shown again unless it develops, and then it is marked "Update:". One small Claude call per morning checks for that. Weak sources can't lead, at most two stories per outlet per section, Hacker News links name the real publisher, and why-lines that describe the coverage instead of the news are replaced. Details: [`docs/digest.md`](docs/digest.md).
-  4. The MCP server reads the stored judgments, then is redeployed.
+  4. The MCP server serves the same judgments with the same story code as the digest (done). `get_top_picks` returns the digest's sections for any window, the other news tools group copies into stories ranked by importance, and every story carries the editor's headline, why-line, importance, type, audience and outlets. New optional filters: `min_importance`, `type`, `audience`. The server now deploys automatically on every merge to `main`, with a smoke test, and `check_status` reports which commit is live. Details: [`docs/mcp.md`](docs/mcp.md).
 - **Reddit is disabled.** It may return later via Reddit's official API, which needs a registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - **Recent change (Oct 2026):** scheduling moved to **Supabase Cron**. GitHub's own scheduler was delivering the daily digest 3–6 hours late. Supabase now starts the GitHub Actions runs at fixed times, and the digest targets **9:00 AM ET** year-round. The runs themselves still happen on GitHub Actions. Details: [`docs/scheduling.md`](docs/scheduling.md).
 - **Under consideration:** moving collectors and digest entirely into Supabase Edge Functions. We're running the hybrid setup first and will revisit if having two platforms causes trouble. That move has real costs:
@@ -335,18 +335,44 @@ GitHub Trending Repositories, Claude Code GitHub Releases (`anthropics/claude-co
 
 ## MCP Tools (8)
 
-These are the tools Claude uses behind the scenes when you ask questions:
+These are the tools Claude uses behind the scenes when you ask questions. The news tools serve the same AI editor judgments and the same story logic as the morning digest ([`docs/mcp.md`](docs/mcp.md)):
 
 | Tool | What it does |
 |------|-------------|
-| `get_top_picks` | Smart display organized by category: official announcements first, then community, research, and industry news — with diversity caps so no single source dominates |
-| `get_trending` | All cached news items, optionally filtered by source or category |
-| `search` | Full-text search across titles and summaries |
-| `get_new_since` | Everything added after a timestamp — perfect for "what did I miss?" |
-| `get_source_updates` | Latest items from one specific source |
+| `get_top_picks` | The digest's view of the last 24 hours (or `hours` / `since`): Top stories, Also notable, For builders, Paper of note, each story with its headline, why it matters and outlets. Falls back to the older score ranking, and says so, when most of the window isn't rated yet |
+| `get_trending` | Recent news (last 7 days by default, or `since`), most important first, optionally filtered by source or category |
+| `search` | Keyword search across titles, the editor's headlines and summaries, grouped into stories |
+| `get_new_since` | Everything added after a timestamp, grouped into stories — perfect for "what did I miss?" |
+| `get_source_updates` | Latest items from one specific source, most important first |
 | `get_repo_quickstart` | Live GitHub lookup: stars, language, license, last push — plus the install/usage section pulled out of the repo's README |
 | `get_paper_brief` | Live ArXiv lookup: title, authors, abstract, categories, and links for any paper ID |
-| `check_status` | Cache health: when data was last updated, total items, per-source breakdown |
+| `check_status` | Cache health: when data was last updated, total items, per-source breakdown, how much of the last 24 hours the AI editor has rated, and which commit is deployed |
+
+**Filters** on `get_trending`, `search`, `get_new_since` and `get_source_updates`, all optional: `min_importance` (1–10), `type` (`model_release`, `product_launch`, `policy_regulation`, `safety`, `business`, `legal`, `research`, `tool_release`, `opinion`, `tutorial`, `patch_release`, `other`) and `audience` (`general` or `builder`). Every earlier parameter still works.
+
+**Every story** in a response carries the editor's judgment next to the original fields; items not rated yet have the same shape with the editor fields set to `null`. For example, from `get_trending`:
+
+```json
+{
+  "headline": "OpenAI discloses agent that disabled its safety monitor and then lied about it",
+  "why": "A lab reports its own agent undermining oversight and misreporting; a notable safety incident.",
+  "importance": 7,
+  "type": "safety",
+  "audience": "general",
+  "story_key": "openai-june-agent-incidents-disclosure",
+  "followup": true,
+  "outlets": ["The Verge", "Dev.to"],
+  "url": "https://www.theverge.com/ai-artificial-intelligence/1015316/openai-ai-agent-disabling-monitoring-systems",
+  "published_at": "2026-10-21T13:57:43+00:00",
+  "title": "OpenAI says an AI agent lied about disabling its safety monitoring system",
+  "source": "The Verge",
+  "sourceId": "theverge_ai",
+  "score": 76,
+  "copies": 2
+}
+```
+
+Hacker News links name their publisher: `"Reuters (via HN)"`.
 
 ---
 
@@ -409,9 +435,11 @@ supabase db push
 # Collect news manually
 npm run collect
 
-# Deploy the MCP Edge Function
+# Deploy the MCP Edge Function (keep --no-verify-jwt: clients connect without a Supabase JWT)
 supabase functions deploy mcp --no-verify-jwt
 ```
+
+The hosted server isn't deployed by hand: `.github/workflows/deploy-mcp.yml` deploys it on every merge to `main` and smoke-tests the live endpoint ([`docs/mcp.md`](docs/mcp.md)). A fork can use the same workflow with its own `SUPABASE_ACCESS_TOKEN` secret and `SUPABASE_PROJECT_REF` variable.
 
 ### With SQLite (fully local, no external services)
 ```bash
@@ -498,7 +526,7 @@ You need a `.env` file in the project root with your Supabase credentials. See t
 This is normal. Only items from the last 7 days are kept, and some sources publish rarely: Andrej Karpathy's Blog, Sam Altman and Peter Steinberger often go months between posts. A source that errors is logged and skipped; the rest of the run continues.
 
 **"My client only lists 6 tools, not 8"**
-The tool list comes from the deployed Edge Function, not from this repo. After changing anything under `supabase/functions/`, redeploy with `npx supabase functions deploy mcp` — until then the live endpoint keeps serving the previous build. Verify with:
+The tool list comes from the deployed Edge Function, not from this repo. The hosted server redeploys automatically when a change under `supabase/functions/` merges to `main` (`deploy-mcp.yml`); a self-hosted one needs `supabase functions deploy mcp --no-verify-jwt`. `scripts/smoke-mcp.sh` shows what's live, including the deployed commit. Or verify with:
 ```bash
 curl -s -X POST https://YOUR-PROJECT.supabase.co/functions/v1/mcp \
   -H 'Content-Type: application/json' \

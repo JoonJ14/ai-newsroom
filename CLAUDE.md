@@ -10,17 +10,17 @@ AI Newsroom is an open-source, real-time AI/tech news aggregator exposed as an M
 
 2. **Storage** (Supabase) — PostgreSQL database via Supabase free tier. Single `news_items` table with auto-cleanup of items older than 90 days. Edge Functions serve the MCP endpoint.
 
-3. **MCP Server** (`supabase/functions/mcp/`) — Supabase Edge Function implementing the MCP protocol. Exposes tools: `get_trending`, `get_top_picks`, `search`, `get_new_since`, `get_source_updates`, `get_repo_quickstart`, `get_paper_brief`, `check_status`.
+3. **MCP Server** (`supabase/functions/mcp/`) — Supabase Edge Function implementing the MCP protocol. Exposes tools: `get_trending`, `get_top_picks`, `search`, `get_new_since`, `get_source_updates`, `get_repo_quickstart`, `get_paper_brief`, `check_status`. Serves the AI editor's judgments with the digest's own story code (`supabase/functions/_shared/newsroom/`, shared by both runtimes). Reads only. **Merge equals deploy:** `deploy-mcp.yml` deploys it on every push to `main` that touches it, then smoke-tests the live endpoint. See `docs/mcp.md`.
 
-4. **AI Editor** (`src/editor/`) — Judges each collected item once with Claude Haiku 5.5 against `config/editor-rubric.md` and stores the result in `news_items.editor_*` (type, importance 1–10, audience, headline, why, story key, follow-up). Runs as a second job in `collect.yml`, and again as the first job of `digest.yml`; allowed to fail in both. The digest reads the judgments; the MCP doesn't yet (step 4). See `docs/editor.md`.
+4. **AI Editor** (`src/editor/`) — Judges each collected item once with Claude Haiku 5.5 against `config/editor-rubric.md` and stores the result in `news_items.editor_*` (type, importance 1–10, audience, headline, why, story key, follow-up). Runs as a second job in `collect.yml`, and again as the first job of `digest.yml`; allowed to fail in both. The digest and the MCP server read the judgments. See `docs/editor.md`.
 
-5. **Digest Delivery** (`src/digest/`) — Builds the morning briefing from the editor's judgments: items grouped into stories (`src/editor/select.ts`), in Top stories, Also notable, For builders and Paper of note, with linked plain headlines and why-lines. Falls back to the old ranking (`buildSlottedDisplay`) when most of the window is unjudged, with a footer saying so. Sends to a Discord webhook (`plain` or `embeds` layout, `DIGEST_LAYOUT`), or Telegram/Slack/iMessage as plain text. The hosted digest is run by `digest.yml` on GitHub Actions daily at 9:00 AM New York time, again dispatched by Supabase Cron, with a 9:30 missed-digest alarm. Self-hosters can still run it locally with `scripts/setup-cron.sh`. See `docs/digest.md`.
+5. **Digest Delivery** (`src/digest/`) — Builds the morning briefing from the editor's judgments: items grouped into stories (`src/editor/select.ts`, a re-export of the shared `stories.ts`), in Top stories, Also notable, For builders and Paper of note, with linked plain headlines and why-lines. Falls back to the old ranking (`buildSlottedDisplay`) when most of the window is unjudged, with a footer saying so. Sends to a Discord webhook (`plain` or `embeds` layout, `DIGEST_LAYOUT`), or Telegram/Slack/iMessage as plain text. The hosted digest is run by `digest.yml` on GitHub Actions daily at 9:00 AM New York time, again dispatched by Supabase Cron, with a 9:30 missed-digest alarm. Self-hosters can still run it locally with `scripts/setup-cron.sh`. See `docs/digest.md`.
 
 ### Tech Stack
 - **Language:** TypeScript throughout
 - **Runtime:** Node.js for collectors, Deno for Supabase Edge Functions
 - **Database:** Supabase PostgreSQL (hosted) or SQLite (self-hosted option)
-- **CI/CD:** GitHub Actions: `ci.yml` (PR checks), `collect.yml` (collect, then the AI editor) and `digest.yml` (the AI editor, then the digest; both dispatched on schedule by Supabase Cron), `editor-backfill.yml` (manual), `heartbeat.yml` (weekly keep-alive)
+- **CI/CD:** GitHub Actions: `ci.yml` (PR checks), `collect.yml` (collect, then the AI editor) and `digest.yml` (the AI editor, then the digest; both dispatched on schedule by Supabase Cron), `editor-backfill.yml` (manual), `deploy-mcp.yml` (deploys the MCP Edge Function on merge to `main`, or by hand), `heartbeat.yml` (weekly keep-alive)
 - **LLM:** Claude Haiku 5.5 via `@anthropic-ai/sdk` for the AI editor and the digest's daily repeat check. (The digest fallback's optional summary still calls Haiku 4.5 over raw `fetch`, and only with `ANTHROPIC_API_KEY`, which the digest job now has for the repeat check.) On Actions both authenticate by workload identity federation, falling back to the `ANTHROPIC_API_KEY` secret
 - **Scheduling:** Supabase Cron (`pg_cron` + `pg_net`) calls GitHub's `workflow_dispatch` API (`supabase/migrations/003_schedule_triggers.sql`)
 - **MCP Protocol:** HTTP transport via Supabase Edge Function
@@ -53,8 +53,36 @@ Sources are defined in `config/sources.yaml`. Each source has:
   3. **The digest built on the judgments** (done, PR #9), then a tuning PR from the
      first five real digests (this one). The MCP, collection and the editor's storage
      format are unchanged.
-  4. **MCP reads the stored judgments**, then redeploy the Edge Function. Adopt
-     `src/utils/source-names.ts` for its source names (it has no imports, for Deno).
+  4. **The MCP serves the judgments** (done, this PR), with one copy of the
+     selection code for both runtimes and automatic deploys. **The ranking rebuild
+     is complete.**
+- **What step 4 adds** (`docs/mcp.md` has the detail):
+  - **Shared code** in `supabase/functions/_shared/newsroom/` (`types`, `rows`,
+    `source-names`, `stories`, `why`, `slots`): pure TS, no imports outside the
+    folder, `.ts` import suffixes (Deno). Node reaches it through one-line
+    re-exports at the old paths (`src/editor/select.ts`, `src/utils/source-names.ts`,
+    `src/utils/slots.ts`, `src/digest/why.ts`), with `allowImportingTsExtensions` and
+    `rewriteRelativeImportExtensions` in `tsconfig.json` (no `rootDir` any more).
+    **Edit the shared file, not a re-export, and never copy it.** It must stay under
+    `supabase/functions/` or the deploy won't upload it (CI checks the module graph).
+  - `PRESS_SOURCES` is static (the server can't read `sources.yaml`); a test keeps it
+    equal to the `industry_news` tier-1/2 sources.
+  - Tools: every entry has the editor fields (null when unjudged) and `outlets`;
+    `get_top_picks` is the digest's sections for a window (24 h default, `hours` /
+    `since`), falling back to the old slots under 50% judged; the list tools group into
+    stories and rank like the digest; `min_importance` / `type` / `audience` filters;
+    `check_status` reports the editor's last-24h coverage and the deployed commit.
+    `get_trending` now defaults to the last 7 days.
+  - The digest's repeat memory and repeat check are digest-only.
+  - **Deploys**: `deploy-mcp.yml` (push to `main` under `supabase/functions/**`, or
+    `workflow_dispatch` from `main`): `deno check`, stamp `build-info.ts` with the SHA,
+    `supabase functions deploy mcp --no-verify-jwt --use-api`, then
+    `scripts/smoke-mcp.sh` (8 tools, the stamped commit live). `supabase/config.toml`
+    sets `verify_jwt = false` too. **Never turn JWT verification on** (every assistant's
+    connection breaks), and never deploy from a branch: production changes only
+    through the workflow after a merge. The `SUPABASE_ACCESS_TOKEN` secret is scoped to
+    Edge Functions read/write and project read; ask for one more permission only if a
+    deploy names it.
 - **What step 1 changed** (CHANGELOG has the full list):
   - Disabled: Reddit ×5 (403 from Actions), HuggingFace Trending Spaces (demos, and pinned
     at 93 by a date bug), VentureBeat (bot challenge, 429). Reasons are in `sources.yaml`.
@@ -191,14 +219,19 @@ just what a collector happened to pick up.
 
 | Tool | Description | Parameters | Backing |
 |------|-------------|------------|---------|
-| `get_trending` | All cached news, optionally filtered by source or category | `source?`, `category?`, `limit?` | cache |
-| `get_top_picks` | Slotted display across 5 category sections, with per-source diversity caps | `officialLimit?`, `communityLimit?`, `researchLimit?`, `industryLimit?`, `showAll?` | cache |
-| `search` | Keyword search across titles and summaries | `query`, `since?` | cache |
-| `get_new_since` | Items added after a timestamp | `since` (ISO 8601), `limit?` | cache |
-| `get_source_updates` | Items from a specific source | `source`, `limit?` | cache |
+| `get_trending` | Recent stories (7 days by default), most important first, optionally by source or category | `source?`, `category?`, `limit?`, `since?`, filters | cache |
+| `get_top_picks` | The digest's sections for a window (default 24 h); old slots when mostly unjudged | `hours?`, `since?`, `showAll?`; `officialLimit?`, `communityLimit?`, `researchLimit?`, `industryLimit?` (fallback only) | cache |
+| `search` | Keyword search across titles, editor headlines and summaries, as stories | `query`, `since?`, `limit?`, filters | cache |
+| `get_new_since` | Stories added after a timestamp | `since` (ISO 8601), `limit?`, filters | cache |
+| `get_source_updates` | A source's latest items, most important first | `source`, `limit?`, filters | cache |
 | `get_repo_quickstart` | GitHub repo metadata + install/usage section from the README | `repo` (owner/name or URL) | live (GitHub API) |
 | `get_paper_brief` | ArXiv paper abstract, authors, categories, links | `arxiv_id` (ID or arxiv.org URL) | live (ArXiv API) |
-| `check_status` | Cache status, last updated, per-source breakdown | — | cache |
+| `check_status` | Cache status, last updated, per-source breakdown, editor coverage (last 24 h), deployed commit | — | cache |
+
+Filters: `min_importance` (1–10), `type` (an editor type), `audience` (`general` / `builder`).
+Every story carries `headline`, `why`, `importance`, `type`, `audience`, `story_key`,
+`followup`, `outlets`, `url`, `published_at` and the original `title`; null editor
+fields when unjudged.
 
 `GITHUB_TOKEN` is optional on the Edge Function — set it to raise `get_repo_quickstart`'s
 GitHub rate limit from 60/hr to 5,000/hr.
@@ -213,6 +246,7 @@ ai-newsroom/
 │       ├── ci.yml           # PR + push-to-main checks (required to merge)
 │       ├── collect.yml      # Collectors + 90-day cleanup, then the AI editor; dispatched by Supabase Cron
 │       ├── digest.yml       # The AI editor, then the daily digest; dispatched by Supabase Cron
+│       ├── deploy-mcp.yml   # Deploys the MCP Edge Function on merge to main; smoke test
 │       ├── editor-backfill.yml # Manual: AI editor over the last N days, higher caps
 │       └── heartbeat.yml    # Weekly commit to the `heartbeat` branch; re-enables workflows
 ├── config/
@@ -221,11 +255,13 @@ ai-newsroom/
 ├── docs/
 │   ├── digest.md            # The digest: stories, sections, fallback, layouts, preview
 │   ├── editor.md            # AI editor: how it works, rubric, cost, re-judging, auth setup
+│   ├── mcp.md               # MCP server: judgments, shared code, deploys, verifying what's live
 │   ├── scheduling.md        # Supabase Cron → workflow_dispatch: why, setup, renewal, rollback
 │   └── sessions/            # Engineering session write-ups
 ├── reviews/                 # Saved code-review reports
 ├── scripts/
-│   └── setup-cron.sh        # Local crontab for the digest (self-host option)
+│   ├── setup-cron.sh        # Local crontab for the digest (self-host option)
+│   └── smoke-mcp.sh         # Smoke test for the live MCP endpoint (deploy-mcp.yml, or by hand)
 ├── src/
 │   ├── collectors/
 │   │   ├── index.ts         # Orchestrator: loads sources.yaml, runs enabled collectors
@@ -242,7 +278,7 @@ ai-newsroom/
 │   │   ├── run.ts           # One run: window, build, deliver, record in digest_state
 │   │   ├── build.ts         # Items → digest document: editor stories, or the fallback
 │   │   ├── repeats.ts       # 7-day story history; the repeat check; the key rule
-│   │   ├── why.ts           # Guard on why-lines that describe coverage
+│   │   ├── why.ts           # Re-export of the shared why-line guard
 │   │   ├── render.ts        # Discord plain/embeds and plain text; per-field escaping; limits
 │   │   ├── store.ts         # Supabase reads; the digest_state write
 │   │   ├── config.ts        # Adapter credentials; layout and thresholds from env
@@ -262,15 +298,15 @@ ai-newsroom/
 │   │   ├── db.ts            # Paged reads, editor-only writes
 │   │   ├── config.ts        # EDITOR_* settings and caps
 │   │   ├── preview.ts       # `npm run preview:editor`: old digest vs editor, read-only
-│   │   ├── select.ts        # Stories, representative item, ranking, sections (digest + preview)
+│   │   ├── select.ts        # Re-export of the shared story code (stories.ts)
 │   │   ├── window.ts        # 9:00 AM New York digest windows; frozen clock for replays
 │   │   └── editor.test.ts   # `npm run test:editor` regression suite (no network)
 │   └── utils/
 │       ├── supabase.ts      # Supabase client: upsert + cleanup
 │       ├── cleanup.ts       # `npm run cleanup`: delete items older than 90 days
 │       ├── scoring.ts       # Relevance score 0-100 (recency / community / tier)
-│       ├── slots.ts         # Slotted display layout (the digest's fallback, preview)
-│       ├── source-names.ts  # Display names for every source, publishers by domain (no imports)
+│       ├── slots.ts         # Re-export of the shared old ranking (the fallback)
+│       ├── source-names.ts  # Re-export of the shared source names and publishers
 │       ├── dedup.ts         # URL + title-similarity dedup; records coveredBy on the kept row
 │       ├── date-filter.ts   # Skip items older than 7 days
 │       ├── http.ts          # fetch with deadline; every response read or cancelled
@@ -279,16 +315,28 @@ ai-newsroom/
 │       ├── test-slots.ts    # Manual script: print slotted display from live data
 │       └── logger.ts        # Logging utility
 ├── supabase/
+│   ├── config.toml          # CLI config: only verify_jwt = false for mcp
 │   ├── functions/
+│   │   ├── _shared/
+│   │   │   └── newsroom/    # Shared by the digest (Node) and the MCP (Deno); pure TS
+│   │   │       ├── types.ts         # NewsItem, editor types and audiences
+│   │   │       ├── rows.ts          # news_items columns; rows → items
+│   │   │       ├── source-names.ts  # Display names, publishers, lab/press/paper sources
+│   │   │       ├── stories.ts       # Stories, representative item, outlets, ranking, sections
+│   │   │       ├── why.ts           # Why-line guard
+│   │   │       └── slots.ts         # The old score-ordered ranking (fallback)
 │   │   └── mcp/
 │   │       ├── index.ts     # Edge Function: JSON-RPC entry point + tool routing
-│   │       ├── test.ts      # Manual harness against real Supabase data (Node, not Deno)
-│   │       ├── external.test.ts # `npm run test:mcp` regression suite (no network)
+│   │       ├── test.ts      # Manual harness: the real handlers on real data (Node)
+│   │       ├── external.test.ts # `npm run test:mcp`: live-lookup helpers (no network)
+│   │       ├── tools.test.ts    # `npm run test:mcp`: news tools vs a fake client (no network)
 │   │       └── _shared/
-│   │           ├── tools.ts     # Tool definitions: names, descriptions, input schemas
-│   │           ├── handlers.ts  # Handlers backed by the news_items cache
-│   │           ├── external.ts  # Handlers backed by live GitHub / ArXiv lookups
-│   │           └── slots.ts     # Category slotting + display formatting
+│   │           ├── tools.ts      # Tool definitions: names, descriptions, input schemas
+│   │           ├── handlers.ts   # Handlers backed by the news_items cache
+│   │           ├── data.ts       # Paged reads with the editor columns (reads only)
+│   │           ├── present.ts    # Entries, ranking, filters, top-picks sections
+│   │           ├── build-info.ts # Deployed commit, stamped by deploy-mcp.yml
+│   │           └── external.ts   # Handlers backed by live GitHub / ArXiv lookups
 │   └── migrations/
 │       ├── 001_create_news_items.sql
 │       ├── 002_create_digest_state.sql
@@ -321,7 +369,10 @@ ai-newsroom/
 - `npm run test:digest` — digest regression suite (stories, sections, repeats and updates, history, why-line guard, publishers, weak sources, caps, fallback, escaping, Discord limits, layouts, adapters, preview never sends); no network
 - `npm run editor` — Judge unjudged items from the last 7 days (needs the service key, so in practice only on Actions)
 - `npm run preview:editor -- --date YYYY-MM-DD [--dry-run] [--all]` — Old digest vs editor for a 9:00 AM ET window; read-only, anon key; `--dry-run` judges in memory with the local `ANTHROPIC_API_KEY`
-- `supabase functions serve mcp` — Run Edge Function locally (this is the MCP server endpoint)
+- `npm run check:mcp` — `deno check` the Edge Function (needs Deno; CI also bundles it)
+- `scripts/smoke-mcp.sh [URL] [COMMIT]` — Smoke-test the live MCP endpoint (reads only): 8 tools, the deployed commit, today's sections
+- `deno run --allow-net --allow-env --allow-read supabase/functions/mcp/index.ts` — Run the Edge Function locally on :8000 (set `SUPABASE_URL`, and the anon key as `SUPABASE_SERVICE_ROLE_KEY`)
+- **Never `supabase functions deploy` by hand**: merge to `main` and `deploy-mcp.yml` deploys
 
 ## Branching and CI
 
@@ -345,14 +396,20 @@ collapses a PR's commits into one and loses the individual history, which the
 owner wants kept. The repo allows merge commits and the ruleset has no
 linear-history rule, so `--merge` works.
 
+**Merge equals deploy for the MCP server.** A merge that touches
+`supabase/functions/**` deploys the Edge Function to production through
+`deploy-mcp.yml`. Check the run's smoke test after merging.
+
 `.github/workflows/ci.yml` runs on every PR and every push to `main`, and the
 `typecheck + tests` check is required to merge. It runs:
 
 1. `npm run typecheck`
-2. `npm run test:mcp`, `npm run test:collect`, `npm run test:editor` and `npm run test:digest`
-3. **NUL-byte scan** — a raw NUL makes tooling treat a source file as binary
+2. **Edge Function check** (Deno 2.9.8): `deno check`, every local import under
+   `supabase/functions/` (or the deploy won't upload it), and `deno bundle`
+3. `npm run test:mcp`, `npm run test:collect`, `npm run test:editor` and `npm run test:digest`
+4. **NUL-byte scan** — a raw NUL makes tooling treat a source file as binary
    (ripgrep stops reporting line matches). One reached `main` on 2026-08-05.
-4. **docs-match-code** — every tool declared, routed *and* in the README, with
+5. **docs-match-code** — every tool declared, routed *and* in the README, with
    the README's tool and source counts matching `tools.ts` and `sources.yaml`.
    Documentation drifting from code has caused real bugs here; it now fails CI.
 
