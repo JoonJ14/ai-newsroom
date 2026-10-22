@@ -18,6 +18,8 @@ export interface RowFilter {
   since?: string;
   source?: string;
   category?: string;
+  /** A keyword search on one text column (websearch syntax). */
+  search?: { column: 'title' | 'summary' | 'editor_headline'; query: string };
 }
 
 export interface FetchResult {
@@ -36,6 +38,7 @@ function applyFilter(q: Query, f: RowFilter): Query {
   if (f.since) q = q.gt('fetched_at', f.since);
   if (f.source) q = q.eq('source', f.source);
   if (f.category) q = q.eq('source_category', f.category);
+  if (f.search) q = q.textSearch(f.search.column, f.search.query, { type: 'websearch' });
   return q;
 }
 
@@ -66,6 +69,7 @@ export async function fetchRows(sb: SupabaseClient, filter: RowFilter = {}, maxR
     const { data, error } = await q;
     if (error?.code === UNDEFINED_COLUMN && editorColumns) {
       // Migration 004 not applied: serve the items unjudged rather than fail
+      if (filter.search?.column === 'editor_headline') return { items: [], truncated: false, editorColumns: false };
       columns = BASE_COLUMNS;
       editorColumns = false;
       continue;
@@ -90,31 +94,6 @@ export async function fetchLatest(sb: SupabaseClient, filter: RowFilter, count: 
   let { data, error } = await run(ITEM_COLUMNS);
   let editorColumns = true;
   if (error?.code === UNDEFINED_COLUMN) {
-    ({ data, error } = await run(BASE_COLUMNS));
-    editorColumns = false;
-  }
-  if (error) throw new Error(error.message);
-  return { items: ((data ?? []) as Row[]).map(rowToItem), truncated: false, editorColumns };
-}
-
-/** Keyword search over one text column, newest-first by score as before, editor columns included. */
-export async function searchColumn(
-  sb: SupabaseClient,
-  column: 'title' | 'summary' | 'editor_headline',
-  query: string,
-  filter: RowFilter,
-  limit: number,
-): Promise<FetchResult> {
-  const run = (columns: string) =>
-    applyFilter(sb.from('news_items').select(columns), filter)
-      .textSearch(column, query, { type: 'websearch' })
-      .order('score', { ascending: false })
-      .order('id', { ascending: true })
-      .limit(limit);
-  let { data, error } = await run(ITEM_COLUMNS);
-  let editorColumns = true;
-  if (error?.code === UNDEFINED_COLUMN) {
-    if (column === 'editor_headline') return { items: [], truncated: false, editorColumns: false };
     ({ data, error } = await run(BASE_COLUMNS));
     editorColumns = false;
   }

@@ -11,13 +11,16 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.102.1';
 import { sourceDisplayName } from '../../_shared/newsroom/source-names.ts';
 import { BUILD_COMMIT, BUILT_AT } from './build-info.ts';
-import { fetchLatest, fetchRows, searchColumn, SERVER_MAX_ROWS, type FetchResult } from './data.ts';
+import { fetchLatest, fetchRows, SERVER_MAX_ROWS, type FetchResult } from './data.ts';
 import {
   editorStatus, entriesText, InvalidParameter, parseFilters, parseLimit, parseSince, rankEntries, topPicks,
   topPicksText, type NewsEntry,
 } from './present.ts';
 
 const HOUR_MS = 60 * 60 * 1000;
+
+/** Matches read per search column before ranking; past this the answer says it is partial. */
+const SEARCH_MAX_ROWS = 5000;
 const hoursAgo = (h: number) => new Date(Date.now() - h * HOUR_MS).toISOString();
 
 const TRUNCATED_NOTE = '\n\n(Note: more items matched than this tool reads at once, so the oldest are not included.)';
@@ -96,21 +99,25 @@ export async function handleSearch(sb: SupabaseClient, params: Record<string, un
   const limit = parseLimit(params.limit, 30);
 
   // Titles and the editor's headlines; summaries too when those find little.
+  // Every match is read (paged) before ranking and filtering: capping first,
+  // by the old score, would drop an important story with a low score.
   // Every query carries the same `since` bound.
-  const filter = { since };
   const [titles, headlines] = await Promise.all([
-    searchColumn(sb, 'title', queryStr, filter, 100),
-    searchColumn(sb, 'editor_headline', queryStr, filter, 100),
+    fetchRows(sb, { since, search: { column: 'title', query: queryStr } }, SEARCH_MAX_ROWS),
+    fetchRows(sb, { since, search: { column: 'editor_headline', query: queryStr } }, SEARCH_MAX_ROWS),
   ]);
   const found = new Map<string, FetchResult['items'][number]>();
   for (const i of [...titles.items, ...headlines.items]) found.set(i.id, i);
+  let truncated = titles.truncated || headlines.truncated;
   if (found.size < 5) {
-    const summaries = await searchColumn(sb, 'summary', queryStr, filter, 50);
+    const summaries = await fetchRows(sb, { since, search: { column: 'summary', query: queryStr } }, SEARCH_MAX_ROWS);
     for (const i of summaries.items) found.set(i.id, i);
+    truncated ||= summaries.truncated;
   }
 
   return {
-    ...listResult(rankEntries([...found.values()], filters), limit, `No results found for "${queryStr}".`),
+    ...listResult(rankEntries([...found.values()], filters), limit, `No results found for "${queryStr}".`, '',
+      { items: [], truncated, editorColumns: true }),
     query: queryStr,
   };
 }

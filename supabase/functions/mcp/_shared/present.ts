@@ -13,7 +13,7 @@ import type { StoredItem } from '../../_shared/newsroom/rows.ts';
 import { buildSlottedDisplay, getRelevanceScore, type SlotOptions } from '../../_shared/newsroom/slots.ts';
 import { sourceDisplayName } from '../../_shared/newsroom/source-names.ts';
 import {
-  buildSections, DEFAULT_MIN_JUDGED_SHARE, DEFAULT_RULES, groupStories, rankStories, SECTION_TITLES, sourceDirectory,
+  buildSections, DEFAULT_MIN_JUDGED_SHARE, DEFAULT_RULES, groupStories, makeStory, rankStories, SECTION_TITLES, sourceDirectory,
   storyOutlets, type DigestSections, type JudgedItem, type SectionRules, type Story,
 } from '../../_shared/newsroom/stories.ts';
 import { AUDIENCES, EDITOR_TYPES, type Audience, type EditorType } from '../../_shared/newsroom/types.ts';
@@ -82,6 +82,13 @@ export function storyEntry(s: Story): NewsEntry {
     published_at: lead.publishedAt ?? null,
     copies: s.items.length,
   };
+}
+
+/** One item on its own: its judgment if it has one, else the unjudged shape. */
+export function itemEntry(item: StoredItem): NewsEntry {
+  if (!item.judgment) return unjudgedEntry(item);
+  const judged = { ...item, judgment: item.judgment } as StoredItem & JudgedItem;
+  return storyEntry(makeStory(item.judgment.storyKey, [judged], DIR));
 }
 
 export function unjudgedEntry(item: StoredItem): NewsEntry {
@@ -216,6 +223,17 @@ const ALL = { topLimit: Infinity, notableLimit: Infinity, builderLimit: Infinity
 const FALLBACK_POOL = 500;
 
 /**
+ * showAll in the old ranking: no section or per-source limit. The top story
+ * stays one item, and the sections after it skip what it took, so nothing is
+ * left out by it.
+ */
+const SLOTS_ALL: SlotOptions = {
+  todayLimit: Infinity, todayMaxPerSource: Infinity, fieldLimit: Infinity, fieldMaxPerSource: Infinity,
+  officialLimit: Infinity, officialMaxPerSource: Infinity, communityLimit: Infinity, communityMaxPerSource: Infinity,
+  researchLimit: Infinity, researchMaxPerSource: Infinity, industryLimit: Infinity, industryMaxPerSource: Infinity,
+};
+
+/**
  * The same sections the digest would build for these items, with its default
  * thresholds; or, when less than half the window is judged, the old
  * score-ordered slots with a note saying so, as the digest falls back.
@@ -224,14 +242,13 @@ export function topPicks(items: StoredItem[], opts: TopPicksOptions = {}): TopPi
   const judged = opts.editorColumns === false ? [] : judgedOnly(items);
   const share = items.length === 0 ? 1 : judged.length / items.length;
   if (items.length > 0 && share < (opts.minJudgedShare ?? DEFAULT_MIN_JUDGED_SHARE)) {
-    const pool = [...items].sort((a, b) => getRelevanceScore(b) - getRelevanceScore(a)).slice(0, FALLBACK_POOL);
-    const display = buildSlottedDisplay(pool, opts.showAll ? {
-      officialLimit: Infinity, communityLimit: Infinity, researchLimit: Infinity, industryLimit: Infinity,
-      officialMaxPerSource: Infinity, communityMaxPerSource: Infinity, researchMaxPerSource: Infinity, industryMaxPerSource: Infinity,
-    } : opts.legacy ?? {});
+    const sorted = [...items].sort((a, b) => getRelevanceScore(b) - getRelevanceScore(a));
+    const pool = opts.showAll ? sorted : sorted.slice(0, FALLBACK_POOL);
+    const display = buildSlottedDisplay(pool, opts.showAll ? SLOTS_ALL : opts.legacy ?? {});
     return {
       mode: 'fallback',
-      sections: display.sections.map((s) => ({ id: s.label, label: s.label, emoji: '', items: (s.items as StoredItem[]).map(unjudgedEntry) })),
+      // Score order, but an item the editor did rate keeps its judgment
+      sections: display.sections.map((s) => ({ id: s.label, label: s.label, emoji: '', items: (s.items as StoredItem[]).map(itemEntry) })),
       total: items.length,
       judged: judged.length,
       note: `The AI editor has rated only ${judged.length} of ${items.length} items in this window ` +

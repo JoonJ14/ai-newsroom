@@ -282,6 +282,26 @@ section('get_top_picks — mostly unjudged: the old score order, with a note');
     res.sections.flatMap((s) => s.items).filter((e) => e.importance === null).length >= 3, true);
   const noColumns = await handleGetTopPicks(fakeClient(fixture(), { noEditorColumns: true }), {});
   check('without the editor columns: fallback too, nothing fails', noColumns.mode, 'fallback');
+  const rated = res.sections.flatMap((s) => s.items).find((e) => e.sourceId === 'wired_ai');
+  check('a rated item in the fallback keeps its judgment', [rated?.importance, rated?.headline], [9, 'Headline 4']);
+
+  seq = 0;
+  const twenty = Array.from({ length: 20 }, (_, i) => row('techcrunch_ai', null, { score: 60 + i, published_at: ago(2) }));
+  const all = await handleGetTopPicks(fakeClient(twenty), { showAll: true });
+  check('showAll in the fallback: every item, no section or per-source caps', all.sections.flatMap((s) => s.items).length, 20);
+  check('without showAll the old caps still apply', (await handleGetTopPicks(fakeClient(twenty), {})).sections.flatMap((s) => s.items).length < 20, true);
+}
+
+section('search — every match ranked and filtered, not the top 100 by score first');
+{
+  seq = 0;
+  const rows = [
+    ...Array.from({ length: 150 }, () => row('devto_ai', { importance: 3 }, { title: 'Claude tips and tricks', score: 90 })),
+    row('anthropic_blog', { importance: 10, headline: 'Anthropic launches Claude 6', story_key: 'claude-6' }, { title: 'Introducing Claude 6', score: 10 }),
+  ];
+  const sb = fakeClient(rows);
+  check('a low-score, high-importance match survives a filter', (await handleSearch(sb, { query: 'claude', min_importance: 9 })).items.map((e) => e.story_key), ['claude-6']);
+  check('and leads without one', (await handleSearch(sb, { query: 'claude' })).items[0].story_key, 'claude-6');
 }
 
 // ─── list tools ──────────────────────────────────────────────────
