@@ -144,8 +144,9 @@ export async function handleGetSourceUpdates(sb: SupabaseClient, params: Record<
   if (!source) throw new Error('Missing required parameter: source');
   const limit = parseLimit(params.limit, 20);
   const filters = parseFilters(params);
-  // The source's newest items, then ranked: the best of what's recent first
-  const fetched = await fetchLatest(sb, { source }, Math.min(Math.max(limit * 3, 60), SERVER_MAX_ROWS));
+  // The source's newest items (that match the filters: applied in the query, so
+  // the cap below can't hide a match), then ranked: the best of what's recent first
+  const fetched = await fetchLatest(sb, { source, editor: filters }, Math.min(Math.max(limit * 3, 60), SERVER_MAX_ROWS));
   return {
     ...listResult(rankEntries(fetched.items, filters), limit, `No items found for source "${source}".`,
       `Latest from ${sourceDisplayName(source)}, most important first:\n`),

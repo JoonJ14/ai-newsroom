@@ -56,7 +56,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Deno's release, SHA-256 checked; the repo allows GitHub-owned actions only):
   `deno check`, every local import under `supabase/functions/`, and
   `deno bundle`.
-- `supabase/functions/mcp/tools.test.ts` (65 assertions, in `npm run
+- `supabase/functions/mcp/tools.test.ts` (67 assertions, in `npm run
   test:mcp`): every tool's response shape, judged and unjudged, the filters,
   `get_top_picks` against the digest's sections for the same fixture, the
   fallback, `check_status`, and that nothing writes.

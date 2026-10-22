@@ -20,6 +20,13 @@ export interface RowFilter {
   category?: string;
   /** A keyword search on one text column (websearch syntax). */
   search?: { column: 'title' | 'summary' | 'editor_headline'; query: string };
+  /**
+   * The editor filters, row by row. Only for a query capped before ranking
+   * (get_source_updates' newest-N): there, filtering afterwards would miss a
+   * match past the cap. Tools that read a whole window filter stories instead,
+   * so a story keeps its lower-rated copies as outlets.
+   */
+  editor?: { minImportance?: number; type?: string; audience?: string };
 }
 
 export interface FetchResult {
@@ -39,6 +46,9 @@ function applyFilter(q: Query, f: RowFilter): Query {
   if (f.source) q = q.eq('source', f.source);
   if (f.category) q = q.eq('source_category', f.category);
   if (f.search) q = q.textSearch(f.search.column, f.search.query, { type: 'websearch' });
+  if (f.editor?.minImportance !== undefined) q = q.gte('editor_importance', f.editor.minImportance);
+  if (f.editor?.type) q = q.eq('editor_type', f.editor.type);
+  if (f.editor?.audience) q = q.eq('editor_audience', f.editor.audience);
   return q;
 }
 
@@ -106,6 +116,10 @@ export async function fetchLatest(sb: SupabaseClient, filter: RowFilter, count: 
   let { data, error } = await run(ITEM_COLUMNS);
   let editorColumns = true;
   if (error?.code === UNDEFINED_COLUMN) {
+    // No editor columns: nothing can match an editor filter
+    if (filter.editor && Object.values(filter.editor).some((v) => v !== undefined)) {
+      return { items: [], truncated: false, editorColumns: false };
+    }
     ({ data, error } = await run(BASE_COLUMNS));
     editorColumns = false;
   }

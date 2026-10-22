@@ -86,6 +86,7 @@ function fakeClient(rows: Row[], { noEditorColumns = false, onCount }: { noEdito
     select(cols: string, o?: { count?: string; head?: boolean }) { this.cols = cols; this.countOnly = Boolean(o?.head); return this; }
     gt(c: string, v: unknown) { this.filters.push((r) => r[c] != null && (r[c] as string) > (v as string)); return this; }
     eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
+    gte(c: string, v: unknown) { this.filters.push((r) => r[c] != null && (r[c] as number) >= (v as number)); return this; }
     not(c: string, op: string, v: unknown) {
       if (op !== 'is' || v !== null) throw new Error(`fake: not(${op})`);
       this.filters.push((r) => r[c] != null);
@@ -321,6 +322,19 @@ section('paged reads — rows committed mid-scan are reported, not silently miss
   const res = await handleGetNewSince(sb, { since: ago(24) });
   check('a complete scan is not marked truncated when nothing moved', (await handleGetNewSince(fakeClient(rows), { since: ago(24) })).truncated, undefined);
   check('a row that appeared mid-scan marks the answer truncated', [res.truncated, /oldest are not included/.test(res.text)], [true, true]);
+}
+
+section('get_source_updates — filters before the newest-N cap');
+{
+  seq = 0;
+  // 61 recent items; only the oldest is rated 9
+  const rows = [
+    row('techcrunch_ai', { importance: 9, story_key: 'the-big-one' }, { fetched_at: ago(0.9) }),
+    ...Array.from({ length: 60 }, (_, i) => row('techcrunch_ai', { importance: 4 }, { fetched_at: ago(0.5 - i / 1000) })),
+  ];
+  check('a match past the cap is found', (await handleGetSourceUpdates(fakeClient(rows), { source: 'techcrunch_ai', min_importance: 9 })).items.map((e) => e.story_key), ['the-big-one']);
+  check('no editor columns: an editor filter matches nothing, without an error',
+    (await handleGetSourceUpdates(fakeClient(rows, { noEditorColumns: true }), { source: 'techcrunch_ai', min_importance: 9 })).items.length, 0);
 }
 
 section('search — every match ranked and filtered, not the top 100 by score first');
