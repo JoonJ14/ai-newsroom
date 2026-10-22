@@ -1,0 +1,84 @@
+name: Deploy MCP server
+
+# Merge equals deploy: every push to main that touches the Edge Function or
+# the code it shares with the digest deploys it, and a manual run redeploys.
+# Never from a pull request or another branch (the job checks the ref too).
+# See docs/mcp.md.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+      - 'scripts/smoke-mcp.sh'
+      - '.github/workflows/deploy-mcp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits for the one in progress
+concurrency:
+  group: deploy-mcp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # workflow_dispatch can be started from any branch: only main deploys
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2.0.5
+        with:
+          deno-version: '2.9.8'
+
+      # The same check CI runs, so a broken function never reaches the deploy
+      - name: Type-check the function
+        run: deno check supabase/functions/mcp/index.ts
+
+      # check_status reports these, and the smoke test checks them
+      - name: Stamp the commit into the build
+        run: |
+          printf "// Written by deploy-mcp.yml for this deploy\nexport const BUILD_COMMIT: string = '%s';\nexport const BUILT_AT: string = '%s';\n" \
+            "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > supabase/functions/mcp/_shared/build-info.ts
+          cat supabase/functions/mcp/_shared/build-info.ts
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.121.0
+
+      # --no-verify-jwt: assistants connect without a Supabase JWT; turning
+      # verification on would break every connection (supabase/config.toml
+      # says the same). --use-api bundles server-side, no Docker. The token is
+      # scoped to Edge Functions read/write plus project read; the function's
+      # own secrets (e.g. GITHUB_TOKEN) are not touched by a deploy.
+      - name: Deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: supabase functions deploy mcp --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+
+      # The new version can take a few seconds to serve: retry until the live
+      # function reports this commit, then fail if it never does
+      - name: Smoke test the live endpoint
+        env:
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          url="https://${PROJECT_REF}.supabase.co/functions/v1/mcp"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if scripts/smoke-mcp.sh "$url" "$GITHUB_SHA"; then
+              echo "### MCP deployed: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $attempt failed; retrying in 15s"
+            sleep 15
+          done
+          echo "::error title=MCP smoke test::the live function did not report commit $GITHUB_SHA"
+          exit 1
