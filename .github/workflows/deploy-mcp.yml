@@ -11,6 +11,7 @@ on:
       - 'supabase/functions/**'
       - 'supabase/config.toml'
       - 'scripts/smoke-mcp.sh'
+      - 'scripts/install-deno.sh'
       - '.github/workflows/deploy-mcp.yml'
   workflow_dispatch:
 
@@ -33,10 +34,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2.0.5
-        with:
-          deno-version: '2.9.8'
+      # Pinned and checksum-verified. The repository allows GitHub-owned
+      # actions only, so Deno and the Supabase CLI are installed directly
+      # rather than with denoland/setup-deno and supabase/setup-cli
+      - name: Install Deno 2.9.8
+        run: scripts/install-deno.sh 2.9.8
 
       # The same check CI runs, so a broken function never reaches the deploy
       - name: Type-check the function
@@ -49,10 +51,18 @@ jobs:
             "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > supabase/functions/mcp/_shared/build-info.ts
           cat supabase/functions/mcp/_shared/build-info.ts
 
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v3.0.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
         with:
-          version: 2.121.0
+          node-version: '22'
+
+      # The Supabase CLI's npm package, pinned. It doesn't support a global
+      # install, so it goes in a prefix of its own, put on the PATH
+      - name: Install Supabase CLI 2.121.0
+        run: |
+          npm install --no-save --prefix "$RUNNER_TEMP/supabase-cli" supabase@2.121.0
+          echo "$RUNNER_TEMP/supabase-cli/node_modules/.bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/supabase-cli/node_modules/.bin/supabase" --version
 
       # --no-verify-jwt: assistants connect without a Supabase JWT; turning
       # verification on would break every connection (supabase/config.toml

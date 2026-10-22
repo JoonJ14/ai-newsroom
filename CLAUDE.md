@@ -260,6 +260,7 @@ ai-newsroom/
 │   └── sessions/            # Engineering session write-ups
 ├── reviews/                 # Saved code-review reports
 ├── scripts/
+│   ├── install-deno.sh      # Pinned, checksum-checked Deno for CI and the deploy
 │   ├── setup-cron.sh        # Local crontab for the digest (self-host option)
 │   └── smoke-mcp.sh         # Smoke test for the live MCP endpoint (deploy-mcp.yml, or by hand)
 ├── src/
@@ -404,7 +405,8 @@ linear-history rule, so `--merge` works.
 `typecheck + tests` check is required to merge. It runs:
 
 1. `npm run typecheck`
-2. **Edge Function check** (Deno 2.9.8): `deno check`, every local import under
+2. **Edge Function check** (Deno 2.9.8 via `scripts/install-deno.sh`; the repo's Actions
+   policy allows GitHub-owned actions only): `deno check`, every local import under
    `supabase/functions/` (or the deploy won't upload it), and `deno bundle`
 3. `npm run test:mcp`, `npm run test:collect`, `npm run test:editor` and `npm run test:digest`
 4. **NUL-byte scan** — a raw NUL makes tooling treat a source file as binary

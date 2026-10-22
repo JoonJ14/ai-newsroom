@@ -31,9 +31,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - uses: denoland/setup-deno@v2.0.5
-        with:
-          deno-version: '2.9.8'
+      # Pinned, checksum-verified, from Deno's own release: this repository
+      # allows GitHub-owned actions only, so not denoland/setup-deno
+      - name: Install Deno 2.9.8
+        run: scripts/install-deno.sh 2.9.8
 
       # The MCP Edge Function runs on Deno, which tsc doesn't check
       # (tsconfig excludes supabase/). Fails if it no longer type-checks or

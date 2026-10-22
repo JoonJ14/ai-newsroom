@@ -47,12 +47,13 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - runs on pushes to `main` under `supabase/functions/**` and on
     `workflow_dispatch`, never from another branch;
   - type-checks, stamps the commit into `build-info.ts`, and deploys with
-    `--no-verify-jwt --use-api` (CLI 2.121.0, `supabase/setup-cli@v3.0.1`);
+    `--no-verify-jwt --use-api` (CLI 2.121.0, from npm);
   - then smoke-tests the live endpoint with `scripts/smoke-mcp.sh`: 8 tools,
     the deployed commit live.
 
   `supabase/config.toml` sets `verify_jwt = false` for `mcp`.
-- **CI checks the Edge Function** on Deno 2.9.8 (`denoland/setup-deno@v2.0.5`):
+- **CI checks the Edge Function** on Deno 2.9.8 (`scripts/install-deno.sh`:
+  Deno's release, SHA-256 checked; the repo allows GitHub-owned actions only):
   `deno check`, every local import under `supabase/functions/`, and
   `deno bundle`.
 - `supabase/functions/mcp/tools.test.ts` (56 assertions, in `npm run

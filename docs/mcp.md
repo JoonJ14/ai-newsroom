@@ -46,7 +46,7 @@ Why this place:
   sources with `sourceTier` 1 or 2.
 
 **CI checks the function itself** (`ci.yml`, "Edge Function type-check and
-bundle"). On Deno 2.9.8 it runs:
+bundle"). On Deno 2.9.8, installed by `scripts/install-deno.sh`, it runs:
 - `deno check`;
 - a check that every local module in its graph is under `supabase/functions/`;
 - `deno bundle`.
@@ -112,11 +112,16 @@ workflow itself. It can also be run by hand from the Actions tab
 for a pull request or another branch**: the job checks the ref.
 
 Steps:
-1. Check out, install Deno 2.9.8 (`denoland/setup-deno@v2.0.5`), and
-   `deno check` the function.
+1. Check out, install Deno 2.9.8 (`scripts/install-deno.sh`: Deno's own
+   release, SHA-256 checked), and `deno check` the function.
 2. Stamp the commit: overwrite `supabase/functions/mcp/_shared/build-info.ts`
    with `$GITHUB_SHA` and the time. The committed file says `dev`.
-3. Install Supabase CLI 2.121.0 (`supabase/setup-cli@v3.0.1`).
+3. Install Supabase CLI 2.121.0 from npm, into a prefix of its own (the
+   package doesn't support a global install).
+
+   Not `denoland/setup-deno` or `supabase/setup-cli`: this repository's
+   Actions policy allows GitHub-owned actions only (Settings → Actions →
+   General). Allowing those two would let the workflows use them instead.
 4. `supabase functions deploy mcp --project-ref $SUPABASE_PROJECT_REF --no-verify-jwt --use-api`:
    - **`--no-verify-jwt`** keeps the endpoint public. Assistants connect without
      a Supabase JWT, so turning verification on would break every connection.
