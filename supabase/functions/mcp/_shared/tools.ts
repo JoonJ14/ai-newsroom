@@ -1,6 +1,10 @@
 /**
  * MCP Tool definitions — names, descriptions, and JSON Schema input parameters.
+ *
+ * Every parameter a tool has ever had still works; new ones are optional.
  */
+
+import { AUDIENCES, EDITOR_TYPES } from '../../_shared/newsroom/types.ts';
 
 export interface ToolDefinition {
   name: string;
@@ -8,33 +12,73 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
+/** What every news item or story in a response carries, for the descriptions. */
+const ENTRY_FIELDS =
+  'Each entry is one story: the AI editor\'s plain `headline`, `why` it matters, `importance` (1-10), `type`, ' +
+  '`audience` (general or builder), `story_key`, `followup`, every outlet that carried it (`outlets`, Hacker News ' +
+  'links as "Publisher (via HN)"), the representative `url` and `published_at`, plus the original `title`, ' +
+  '`source` and `score`. Editor fields are null for items not rated yet.';
+
+/** The AI editor's filters, on the tools that list news. */
+const EDITOR_FILTERS = {
+  min_importance: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 10,
+    description: 'Only stories the AI editor rated at least this important (1-10). 7+ is significant news, 9-10 is rare.',
+  },
+  type: {
+    type: 'string',
+    enum: [...EDITOR_TYPES],
+    description: 'Only stories of this type, as judged by the AI editor.',
+  },
+  audience: {
+    type: 'string',
+    enum: [...AUDIENCES],
+    description: '"general" for news anyone following AI wants; "builder" for developer tools, SDKs, tutorials.',
+  },
+};
+
 export const TOOLS: ToolDefinition[] = [
   {
     name: 'get_top_picks',
     description:
-      'Get the latest AI news organized into 5 sections. IMPORTANT: Always display ALL sections as distinct categories in your response. The sections are: (1) Today\'s Highlights — items published in the last 24 hours, (2) Official Announcements — company blog posts and major releases, (3) Community Highlights — Reddit, HackerNews, HuggingFace, (4) Research & Papers — ArXiv and academic work, (5) Industry News — trade publications and analysis. Each section has its own emoji and label. Present them separately — do not merge Today\'s Highlights into other sections.',
+      'Get the top AI news of the last 24 hours (or a window you choose), as the AI Newsroom morning digest ranks it: ' +
+      'stories grouped across outlets and judged by an AI editor, in four sections. (1) Top stories: the most ' +
+      'important news, rated 6+. (2) Also notable: rated 4+. (3) For builders: developer tools and releases. ' +
+      '(4) Paper of note: at most one notable paper. Present the sections separately, each story with its headline, ' +
+      'why it matters and its outlets. ' + ENTRY_FIELDS + ' If most of the window is not rated yet, the response says ' +
+      'so in `note` and falls back to an older score-based ranking (mode "fallback").',
     inputSchema: {
       type: 'object',
       properties: {
+        hours: {
+          type: 'number',
+          description: 'Look back this many hours (default 24)',
+        },
+        since: {
+          type: 'string',
+          description: 'ISO 8601 timestamp: the window starts here instead (overrides hours)',
+        },
         officialLimit: {
           type: 'number',
-          description: 'Max official announcement items (default 10)',
+          description: 'Older ranking only (when most items are unrated): max official announcement items',
         },
         communityLimit: {
           type: 'number',
-          description: 'Max community items (default 8)',
+          description: 'Older ranking only: max community items',
         },
         researchLimit: {
           type: 'number',
-          description: 'Max research items (default 6)',
+          description: 'Older ranking only: max research items',
         },
         industryLimit: {
           type: 'number',
-          description: 'Max industry items (default 4)',
+          description: 'Older ranking only: max industry items',
         },
         showAll: {
           type: 'boolean',
-          description: 'If true, remove all caps and show everything',
+          description: 'If true, no per-section or per-outlet limits: every story that qualifies for a section',
         },
       },
     },
@@ -42,14 +86,20 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'get_trending',
     description:
-      'Get all cached news items, optionally filtered by source or category.',
+      'Get recent AI news (the last 7 days by default), most important first, optionally filtered by source, ' +
+      'category, or the AI editor\'s importance, type and audience. ' + ENTRY_FIELDS,
     inputSchema: {
       type: 'object',
       properties: {
+        since: {
+          type: 'string',
+          description: 'ISO 8601 timestamp: only items collected after this (default: 7 days ago)',
+        },
+        ...EDITOR_FILTERS,
         source: {
           type: 'string',
           description:
-            'Filter by source ID (e.g., "anthropic_blog", "reddit_claudeai")',
+            'Filter by source ID (e.g., "anthropic_blog", "techcrunch_ai")',
         },
         category: {
           type: 'string',
@@ -65,7 +115,9 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search',
-    description: 'Search AI news by keyword across titles and summaries.',
+    description:
+      'Search AI news by keyword across titles, the AI editor\'s headlines and summaries. Results are grouped into ' +
+      'stories, most important first. ' + ENTRY_FIELDS,
     inputSchema: {
       type: 'object',
       properties: {
@@ -78,6 +130,11 @@ export const TOOLS: ToolDefinition[] = [
           description:
             'ISO 8601 timestamp — only return items after this time',
         },
+        limit: {
+          type: 'number',
+          description: 'Max stories to return (default 30)',
+        },
+        ...EDITOR_FILTERS,
       },
       required: ['query'],
     },
@@ -85,7 +142,8 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'get_new_since',
     description:
-      "Get all items added after a specific time. Perfect for 'what's new since yesterday?' or 'what did I miss this weekend?'",
+      "Get everything collected after a specific time, grouped into stories, most important first. Perfect for " +
+      "'what's new since yesterday?' or 'what did I miss this weekend?' " + ENTRY_FIELDS,
     inputSchema: {
       type: 'object',
       properties: {
@@ -96,15 +154,17 @@ export const TOOLS: ToolDefinition[] = [
         },
         limit: {
           type: 'number',
-          description: 'Max items to return (default 50)',
+          description: 'Max stories to return (default 50)',
         },
+        ...EDITOR_FILTERS,
       },
       required: ['since'],
     },
   },
   {
     name: 'get_source_updates',
-    description: 'Get the latest items from a specific source.',
+    description:
+      'Get the latest items from a specific source, the most important of its recent items first. ' + ENTRY_FIELDS,
     inputSchema: {
       type: 'object',
       properties: {
@@ -117,6 +177,7 @@ export const TOOLS: ToolDefinition[] = [
           type: 'number',
           description: 'Max items to return (default 20)',
         },
+        ...EDITOR_FILTERS,
       },
       required: ['source'],
     },
@@ -156,7 +217,9 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'check_status',
     description:
-      'Check the health of the news cache: when it was last updated, total items, and per-source breakdown.',
+      'Check the health of the news cache: when it was last updated, total items, per-source breakdown, how much of ' +
+      'the last 24 hours the AI editor has rated (share judged, newest judgment, rubric versions), and which commit ' +
+      'of the server is deployed.',
     inputSchema: {
       type: 'object',
       properties: {},

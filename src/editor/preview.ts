@@ -149,7 +149,7 @@ async function main() {
   }
   console.log(`Importance: ${histogram(judged)}`);
 
-  const dir = sourceDirectory(sources);
+  const dir = sourceDirectory();
   const stories = groupStories(judged, dir);
   // The digest's sections and default thresholds, without its repeat check
   // (that needs the last 7 days of digests); `npm run digest -- --preview` has it

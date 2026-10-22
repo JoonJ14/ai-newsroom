@@ -4,8 +4,8 @@ Step 2 of the ranking rebuild. The old score never reads an item's content: it i
 recency, engagement and source tier, so a Claude Code patch release and GPT-6
 could land side by side. The editor reads each item once, judges it against a
 written rubric, and stores the judgment on the row. Since step 3 the daily
-digest is built from the judgments ([`docs/digest.md`](digest.md)); step 4
-has the MCP read them.
+digest is built from the judgments ([`docs/digest.md`](digest.md)), and since
+step 4 the MCP server serves them too ([`docs/mcp.md`](mcp.md)).
 
 ## How it works
 
@@ -159,7 +159,7 @@ the day before), it prints:
    starts from `digest_state.last_digest_at`, which the anon key can't read, so
    the preview uses the nominal window.
 2. **The editor's view.** Stories (judged items grouped by `story_key`) in the
-   digest's sections, with its default thresholds (`src/editor/select.ts`,
+   digest's sections, with its default thresholds (`supabase/functions/_shared/newsroom/stories.ts`,
    shared with the digest; the rules are in [`docs/digest.md`](digest.md)):
    Top stories, Also notable, For builders, Paper of note. Unlike the digest,
    it doesn't leave out the previous morning's top stories.

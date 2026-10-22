@@ -13,7 +13,8 @@
     "cleanup": "tsx src/utils/cleanup.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "test:mcp": "tsx supabase/functions/mcp/external.test.ts",
+    "test:mcp": "tsx supabase/functions/mcp/external.test.ts && tsx supabase/functions/mcp/tools.test.ts",
+    "check:mcp": "deno check supabase/functions/mcp/index.ts",
     "test:collect": "tsx src/collectors/collect.test.ts",
     "test:editor": "tsx src/editor/editor.test.ts",
     "test:digest": "tsx src/digest/digest.test.ts"

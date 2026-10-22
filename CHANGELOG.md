@@ -6,11 +6,62 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-> **Deploy note:** the MCP tool list is served by the deployed Edge Function, not
-> by this repo. Run `npx supabase functions deploy mcp` to make the changes below
-> live; until then the endpoint keeps serving the previous build.
+> **Deploy note:** since step 4, `.github/workflows/deploy-mcp.yml` deploys the
+> MCP Edge Function on every merge to `main` that touches it, and smoke-tests the
+> live endpoint. Before that nothing deployed it; the first run of the workflow
+> ships everything below at once.
 
 ### Added
+
+**The MCP server serves the editor's judgments (ranking rebuild, step 4 of 4: the rebuild is complete)**
+
+- **One copy of the selection code for both runtimes**, in
+  `supabase/functions/_shared/newsroom/`:
+  - `types`, `rows`, `source-names`, `stories`, `why` and `slots`: pure
+    TypeScript with `.ts` imports;
+  - Node imports them through one-line re-exports at the old paths;
+  - the MCP's own `_shared/slots.ts` and source-name map are gone;
+  - a test checks that both paths get the same functions, and that the static
+    `PRESS_SOURCES` matches `sources.yaml`.
+- **Every story or item from the news tools** carries the editor's `headline`,
+  `why` (after the guard), `importance`, `type`, `audience`, `story_key` and
+  `followup`, plus `outlets` (HN links as "Publisher (via HN)") and
+  `published_at`, next to the original fields. They are `null` when unjudged.
+- **`get_top_picks`** returns the digest's sections for the last 24 hours (new
+  `hours` / `since`), with its thresholds, weak-source rule and per-outlet caps.
+  When under half the window is judged, it falls back to the old score-ordered
+  slots, with a `note`.
+- **`get_trending`, `search`, `get_new_since`, `get_source_updates`**:
+  - copies are grouped into stories;
+  - judged stories are ranked like the digest (importance, outlets, recency),
+    with unjudged items after, by the old score;
+  - `search` also matches the editor's headlines.
+- **New optional filters**: `min_importance` (1–10), `type` and `audience`,
+  validated (-32602 when invalid) and documented in the tool schemas. Every
+  earlier tool name and parameter still works.
+- **`check_status`** reports the share of the last 24 hours judged, the newest
+  `editor_judged_at`, the rubric versions and models in use, and the deployed
+  commit (`deployment`). `initialize` reports the commit in
+  `serverInfo.version`.
+- **`.github/workflows/deploy-mcp.yml`**:
+  - runs on pushes to `main` under `supabase/functions/**` and on
+    `workflow_dispatch`, never from another branch;
+  - type-checks, stamps the commit into `build-info.ts`, and deploys with
+    `--no-verify-jwt --use-api` (CLI 2.121.0, from npm);
+  - then smoke-tests the live endpoint with `scripts/smoke-mcp.sh`: 8 tools,
+    the deployed commit live.
+
+  `supabase/config.toml` sets `verify_jwt = false` for `mcp`.
+- **CI checks the Edge Function** on Deno 2.9.8 (`scripts/install-deno.sh`:
+  Deno's release, SHA-256 checked; the repo allows GitHub-owned actions only):
+  `deno check`, every local import under `supabase/functions/`, and
+  `deno bundle`.
+- `supabase/functions/mcp/tools.test.ts` (68 assertions, in `npm run
+  test:mcp`): every tool's response shape, judged and unjudged, the filters,
+  `get_top_picks` against the digest's sections for the same fixture, the
+  fallback, `check_status`, and that nothing writes.
+- `docs/mcp.md`: how the server uses the judgments, the shared code, deploys,
+  and verifying what's live.
 
 **Digest tuning, from the first five real digests (Oct 17–21)**
 
@@ -369,6 +420,23 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   touch the database, but the client was constructed before routing.
 
 ### Changed
+
+**The MCP server (step 4)**
+
+- **`get_trending` looks at the last 7 days by default** (`since` to change).
+  It used to rank the whole 90-day cache by score. Ranked by importance, that
+  would put month-old stories first.
+- **The MCP's `get_top_picks` sections are the digest's.** The old five
+  (Today's Highlights, Official Announcements, Community, Research, Industry)
+  remain only as the fallback.
+- **The Supabase client import is pinned** (`supabase-js@2.102.1`, as Node
+  uses) rather than `@2`.
+- `tsconfig.json`: `allowImportingTsExtensions` and
+  `rewriteRelativeImportExtensions`, no `rootDir`, so Node can import the
+  shared `.ts` files. The digest's output is unchanged: previews of Oct 20 and
+  21 are byte-identical before and after.
+- The manual harness `supabase/functions/mcp/test.ts` now runs the real
+  handlers, reading with the anon key.
 
 **Digest tuning**
 

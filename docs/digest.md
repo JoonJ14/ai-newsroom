@@ -42,7 +42,7 @@ Supabase Cron ─▶ digest.yml ─▶ editor job ──▶ digest job ─▶ np
 
 ## Stories
 
-Judged items are grouped by `editor_story_key` (`src/editor/select.ts`). For
+Judged items are grouped by `editor_story_key` (`supabase/functions/_shared/newsroom/stories.ts`, shared with the MCP server, [`docs/mcp.md`](mcp.md)). For
 each story:
 
 - **Importance**: the highest importance among its items.
@@ -206,7 +206,7 @@ keeps the default. It never stops the digest.
 A Hacker News item's URL is the article itself, so a story linked from HN
 names its publisher, from the link's domain: "Reuters (via HN)", "The
 Guardian (via HN)".
-- The map of domains is `PUBLISHERS` in `src/utils/source-names.ts`: Reuters,
+- The map of domains is `PUBLISHERS` in `supabase/functions/_shared/newsroom/source-names.ts`: Reuters,
   AP, the FT, Bloomberg, the Guardian, the NYT, the WSJ, the BBC, the
   Washington Post, CNBC, Business Insider, The Information, Axios, Politico,
   404 Media, The Register, The Verge, Ars Technica, WIRED, TechCrunch, MIT
@@ -220,7 +220,7 @@ Guardian (via HN)".
 
 The rubric forbids them, but the editor still writes some ("…matches the
 existing OpenAI test-hacking coverage", "…a video explainer on a speech
-already covered"). `src/digest/why.ts` checks each shown story's why-line
+already covered"). `supabase/functions/_shared/newsroom/why.ts` checks each shown story's why-line
 against patterns taken from the stored why-lines of Oct 12–21:
 - "coverage";
 - "already/widely/elsewhere … covered";
@@ -345,10 +345,10 @@ key.
 | `src/digest/run.ts` | One run: window, build, deliver, record. Preview and dry run never deliver or record |
 | `src/digest/build.ts` | Window items to the digest document: editor sections, fallback, footer, "Update:" label |
 | `src/digest/repeats.ts` | Story history, the repeat check, the key rule, merging and cutting updates |
-| `src/digest/why.ts` | The why-line guard |
+| `supabase/functions/_shared/newsroom/why.ts` | The why-line guard (shared with the MCP server) |
 | `src/digest/render.ts` | Discord (plain, embeds) and plain-text renderings; escaping; limits |
 | `src/digest/store.ts` | Supabase reads and the `digest_state` write |
 | `src/digest/config.ts` | Adapter credentials; layout and thresholds from the environment |
-| `src/editor/select.ts` | Stories, representative item, ranking, sections (shared with `preview:editor`) |
-| `src/utils/source-names.ts` | Display names for every source, publishers by domain; dependency-free so the MCP can adopt it in step 4 |
+| `supabase/functions/_shared/newsroom/stories.ts` | Stories, representative item, ranking, sections; shared with the MCP server and `preview:editor` (Node imports it via `src/editor/select.ts`) |
+| `supabase/functions/_shared/newsroom/source-names.ts` | Display names for every source, publishers by domain, source classes; shared with the MCP server |
 | `src/digest/digest.test.ts` | `npm run test:digest`, in CI |

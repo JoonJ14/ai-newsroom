@@ -11,7 +11,7 @@
 import type { NewsItem, SourceConfig } from '../collectors/types.js';
 import type { StoredItem } from '../editor/db.js';
 import {
-  buildSections, groupStories, minShownImportance, type DigestSections, type JudgedItem, type SourceDirectory, type Story,
+  buildSections, groupStories, minShownImportance, SECTION_TITLES, type DigestSections, type JudgedItem, type SourceDirectory, type Story,
 } from '../editor/select.js';
 import { withClock } from '../editor/window.js';
 import { buildSlottedDisplay, type SlottedDisplay } from '../utils/slots.js';
@@ -105,13 +105,13 @@ export function editorSections(sections: DigestSections, fixes: string[] = []): 
   const storyEntry_ = (s: Story) => storyEntry(s, fixes);
   return [
     {
-      title: 'Top stories', icon: '📰', style: 'stories', entries: sections.top.map(storyEntry_),
+      ...SECTION_TITLES.top, style: 'stories', entries: sections.top.map(storyEntry_),
       // Not "nothing was rated 6+": a paper or a builder story may have been, and be shown below
       empty: 'No top stories today.',
     },
-    { title: 'Also notable', icon: '📌', style: 'list', entries: sections.alsoNotable.map(storyEntry_) },
-    { title: 'For builders', icon: '🛠️', style: 'list', entries: sections.builders.map(storyEntry_) },
-    { title: 'Paper of note', icon: '📄', style: 'story', entries: sections.paper.map(storyEntry_) },
+    { ...SECTION_TITLES.alsoNotable, style: 'list', entries: sections.alsoNotable.map(storyEntry_) },
+    { ...SECTION_TITLES.builders, style: 'list', entries: sections.builders.map(storyEntry_) },
+    { ...SECTION_TITLES.paper, style: 'story', entries: sections.paper.map(storyEntry_) },
   ];
 }
 

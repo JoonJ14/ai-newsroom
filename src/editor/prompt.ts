@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { NewsItem, SourceConfig } from '../collectors/types.js';
 import type { Coverage } from '../utils/dedup.js';
+import { OFFICIAL_LAB_SOURCES } from '../utils/source-names.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const RUBRIC_PATH = resolve(here, '../../config/editor-rubric.md');
@@ -41,21 +42,9 @@ export function loadRubric(path = RUBRIC_PATH): Rubric {
 
 /**
  * Sources that are a lab's own channel. A primary source, not a sign of
- * importance: the rubric says so.
+ * importance: the rubric says so. Shared with story selection.
  */
-export const OFFICIAL_LAB_SOURCES = new Set([
-  'anthropic_blog',
-  'anthropic_changelog',
-  'claude_code_releases',
-  'openai_news',
-  'openai_codex_releases',
-  'google_ai_blog',
-  'deepmind_blog',
-  'google_research',
-  'meta_ai_blog',
-  'xai_blog',
-  'nvidia_developer_blog',
-]);
+export { OFFICIAL_LAB_SOURCES };
 
 /** A story the editor has already named, offered so copies and follow-ups reuse its key. */
 export interface KnownStory {

@@ -1,0 +1,8 @@
+# Supabase CLI configuration. Only what the deploy needs: this repo doesn't
+# run the local Supabase stack. The MCP endpoint is public (AI assistants
+# connect without a Supabase JWT), so JWT verification stays off; the deploy
+# workflow passes --no-verify-jwt as well, so neither can turn it on alone.
+project_id = "ai-newsroom"
+
+[functions.mcp]
+verify_jwt = false
