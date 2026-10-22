@@ -8,8 +8,31 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **Deploy note:** since step 4, `.github/workflows/deploy-mcp.yml` deploys the
 > MCP Edge Function on every merge to `main` that touches it, and smoke-tests the
-> live endpoint. Before that nothing deployed it; the first run of the workflow
-> ships everything below at once.
+> live endpoint. Before that nothing deployed it. **First deploy: 2026-10-22,
+> commit `1f0d295`** (run `39726965410`), after removing two leading spaces from
+> the `SUPABASE_PROJECT_REF` variable that failed the merge-triggered run
+> (docs/TROUBLESHOOTING.md). It shipped everything below at once. The smoke
+> test passed on the first attempt, and production then reported 8 tools, 100%
+> of the last 24 hours judged, and the digest's sections in `get_top_picks`.
+
+### Ranking rebuild, steps 2–4 — 2026-10-16 → 2026-10-22
+
+All merged with regular merge commits. The full engineering record (problems,
+root causes, the options considered, evidence) is in
+[`docs/sessions/2026-10-22-ranking-rebuild-steps-2-4.md`](docs/sessions/2026-10-22-ranking-rebuild-steps-2-4.md).
+The debugging stories are in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md),
+and the design decisions (`DEC-001`–`DEC-019`) in
+[`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+| Step | Branch | PR | Merge | Codex findings fixed |
+|---|---|---|---|---|
+| 2: the AI editor | `feat/editor-step2` | #8 | `a743471` | 1 |
+| 3: the digest on the judgments | `feat/digest-step3` | #9 | `20ae444` | 3 |
+| Digest tuning (Oct 17–21 digests) | `feat/digest-tuning` | #10 | `78aeb79` | 2 |
+| 4: the MCP serves the judgments | `feat/mcp-step4` | #11 | `1f0d295` | 7 |
+
+Cost in production: the editor about $0.02 a day, and the digest's repeat check
+about $0.002 a day.
 
 ### Added
 
@@ -205,6 +228,12 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `upvotes`, `numComments`, `githubRepo`/`githubStars`, `projectPage` and the
   submitting organization.
 - **`npm run test:collect`** (86 assertions, no network) and a CI step for it.
+  It has 84 since step 3, which moved its two Discord-escaping checks to
+  `test:digest`.
+- **After merge (owner, by hand):** the 4 old-format `anthropic_changelog` rows
+  (`url like '%?entry=%'`) were deleted in the SQL Editor, so they wouldn't show
+  as new. The first Actions runs confirmed collection finishes in about 1–2
+  minutes, and that the new outlets appear.
 
 **Scheduling and CI**
 
@@ -249,6 +278,51 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   heading fallback, and the `-32602` vs `-32603` distinction.
 
 ### Fixed
+
+**Found in review, steps 2–4.** Each was reproduced, fixed and given a
+regression test before its PR merged.
+
+- **The editor (PR #8):** story keys cut by the 250-key context cap
+  (`EDITOR_CONTEXT_STORIES`) still counted as "known", so a key named again
+  never reached later batches in the same run. `knownKeys` now holds only the
+  keys the prompt shows (`knownAtStart`).
+- **The digest (PR #9):**
+  - The empty Top-stories line said "nothing was rated 6 or higher" even when a
+    paper or builder story was. It now says "No top stories today."
+  - The preview rebuilt the previous morning with no repeat state of its own,
+    so a story held back the day before was held back again. The preview now
+    replays the mornings in order: 3 at first, 7 since the history
+    (`PREVIEW_LOOKBACK_DAYS = HISTORY_DAYS`).
+  - Covered papers competing as news is intended. The docs had claimed they
+    never leave Paper of note; corrected, and a test added.
+- **The tuning (PR #10):**
+  - An update could be headed and ranked by a late copy of the original
+    announcement fetched the same day. Updates now prefer the items flagged as
+    follow-ups, and every merged key is still recorded in the history
+    (`StoryUpdate.keys`).
+  - Names with a lowercase first letter (`xAI`, `iPhone`) produced no names, so
+    an identical repeat couldn't be matched. A capital or digit anywhere now
+    counts, and identical headlines always match.
+- **The MCP server (PR #11):**
+  - `showAll` in the old-ranking fallback still applied the today/field caps
+    and the 500-item pool (now `SLOTS_ALL`, no pool).
+  - The fallback showed rated items as unrated (`itemEntry` keeps the
+    judgment).
+  - `search` kept the top 100 matches by old score before ranking and
+    filtering. It now pages every match, up to 5,000 per column.
+  - `search` decided whether to search summaries from raw match counts; it now
+    counts stories that pass the filters.
+  - `get_source_updates` filtered after taking a source's newest 60 items. Its
+    editor filters now go into the query.
+  - Paged reads dropped the post-scan count, so rows a collector batch
+    committed mid-scan went unnoticed. They now set `truncated`.
+  - **A regression of the August fix below:** release entries bypassed
+    `officialLimit` again in the fallback, because the shared `slots.ts` caps
+    only blog entries. The MCP trims its own fallback; the digest's is
+    unchanged.
+- **CI on PR #11** ended in `startup_failure`, because the repository allows
+  GitHub-owned actions only. Deno and the Supabase CLI are now installed
+  without third-party actions (pinned, and checksum-verified for Deno).
 
 **Collection (ranking rebuild, step 1 of 4)**
 
@@ -538,6 +612,35 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the actual 90.
 
 ### Documentation
+
+- **`docs/sessions/2026-10-22-ranking-rebuild-steps-2-4.md`:** the engineering
+  record of steps 2–4. Each problem is written up as problem, root cause, the
+  options considered, the implemented solution, and results; it also has
+  process notes and 11 follow-ups.
+- **`docs/TROUBLESHOOTING.md`** (new): 19 entries, each with symptom,
+  diagnosis, solutions considered, fix and verification. Two are open: old
+  news the digest never showed (the MI5 explainer), and HN links to a lab's own
+  domain.
+- **`docs/DECISIONS.md`** (new): `DEC-001`–`DEC-019`, covering scheduling, step 1, the editor,
+  the digest, the repeat check, the shared code, deploys and CI installs.
+  Project-wide decisions stay in CLAUDE.md.
+- `docs/editor.md`, `docs/digest.md` and `docs/mcp.md` were written or updated
+  in PRs #8–#11; see their Added sections above.
+- **Checked against the planning conversation's checklist** (2026-10-22), with
+  gaps filled:
+  - `docs/scheduling.md`: production status, the Vault token's name and expiry
+    (renew around 2027-01-03), what's safe to re-run in migration 003, and the
+    free-tier keep-alive;
+  - `docs/editor.md`: the first backfill (924/924, 37 calls, about $0.11), the
+    Oct 17 re-judge and its SQL, billing, and federation as a pending owner
+    step;
+  - `docs/mcp.md`: the deploy token never expires and its exact scopes, plus
+    connecting from Claude Code;
+  - CLAUDE.md: the pending owner step, dates, the cleanup and watch lists,
+    deferred work, `.env` rules for dev machines, and Supabase's Oct 30 grants
+    change;
+  - README: corrected "only items from the last 7 days are kept". Collection
+    takes 7 days; retention is 90.
 
 - README and CLAUDE.md: the four-step ranking rebuild, the Reddit roadmap note,
   source count 38 (30 enabled) with the disabled ones and why.

@@ -173,6 +173,10 @@ and 16–22k output tokens: **about $0.015–0.02 a day**, well under $1 a month
 Each run logs its calls, tokens and estimated cost, and adds a summary table to
 the GitHub run page.
 
+**Billing:** the editor, and the digest's repeat check, run on the API credits
+included with the owner's Max plan, through a Claude Console organization.
+They don't draw on the Max plan's chat or Claude Code usage limits.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `EDITOR_MODEL` | `claude-haiku-5-5` | Model; also a repository variable |
@@ -211,6 +215,18 @@ WHERE fetched_at >= NOW() - INTERVAL '7 days';
 The editor only looks back `--days` (7 by default; the backfill takes it as an
 input), so clearing older rows needs a larger `days` on the backfill.
 
+Clearing `editor_judged_at` alone is enough. The editor rejudges any row where
+it is null, and its write replaces every `editor_*` column.
+
+**Done once for real on Oct 17, 2026**, so the first new digest would use
+rubric v4. The 30-hour window covered that morning's digest:
+
+```sql
+update news_items set editor_judged_at = null
+where fetched_at > now() - interval '30 hours'
+  and editor_version is distinct from '2026-10-17.4';
+```
+
 Clear and backfill well before 8:30 AM ET, or after 9:00. Otherwise the
 morning's digest may find the window mostly unjudged and fall back to the old
 ranking. The digest's own editor job only judges up to its caps (300 items, 20
@@ -221,6 +237,9 @@ calls).
 Actions → **AI Editor Backfill** → Run workflow. Inputs: `days` (7),
 `max_items` (1500), `max_calls` (80). Same code, logging and auth as the
 scheduled run. It exists because only GitHub has the database's write key.
+
+**The first backfill** (Oct 16–17, 2026, right after migration 004 and the PR #8 merge) judged **924 of 924**
+items in 37 calls, for about $0.11.
 
 ## Authentication
 
@@ -264,3 +283,10 @@ The log line `auth: …` says which one ran. The mode is logged; secrets never a
    identity → History tab.
 7. Once it has worked, delete the `ANTHROPIC_API_KEY` repository secret. Only
    the editor jobs read it (in `collect.yml`, `digest.yml` and the backfill).
+
+**Status (Oct 22, 2026): not done yet. This is an owner follow-up.** No
+`ANTHROPIC_FEDERATION_*` variables exist, so every run uses the
+`ANTHROPIC_API_KEY` secret. To finish:
+1. Complete the Console wizard (steps 1–5).
+2. Confirm that an editor log says `auth: workload identity federation (GitHub OIDC token)`.
+3. Then delete the secret.

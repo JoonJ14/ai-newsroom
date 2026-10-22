@@ -42,7 +42,7 @@ Sources are defined in `config/sources.yaml`. Each source has:
   A full move of collectors and digest into Supabase Edge Functions is **deferred, not rejected**. Revisit it if
   the two-platform setup causes trouble. Known costs of that move: Edge Function CPU and wall-clock limits, some
   sources may block cloud-provider IPs, and deploys would stop happening automatically on merge to `main`.
-- **Ranking rebuild in progress**, one PR per step, based on a read-only audit
+- **Ranking rebuild: complete (2026-10-22)**, one PR per step, based on a read-only audit
   (`ranking-audit.md`, the owner's local file, not committed). The product: a morning
   briefing of the big AI news (frontier model launches, major product launches,
   policy and safety, lab and business news), with builder content as a secondary.
@@ -51,11 +51,59 @@ Sources are defined in `config/sources.yaml`. Each source has:
   2. **AI editor** (done, PR #8): judge each item once, at collection time, and store
      the judgment.
   3. **The digest built on the judgments** (done, PR #9), then a tuning PR from the
-     first five real digests (this one). The MCP, collection and the editor's storage
-     format are unchanged.
-  4. **The MCP serves the judgments** (done, this PR), with one copy of the
-     selection code for both runtimes and automatic deploys. **The ranking rebuild
-     is complete.**
+     first five real digests (done, PR #10).
+  4. **The MCP serves the judgments** (done, PR #11), with one copy of the
+     selection code for both runtimes and automatic deploys. First deployed
+     2026-10-22 (`1f0d295`), smoke test green.
+  - **Engineering record:** `docs/sessions/2026-10-22-ranking-rebuild-steps-2-4.md`,
+    `docs/TROUBLESHOOTING.md` (debugging stories) and `docs/DECISIONS.md`
+    (`DEC-001`–`DEC-019`; read before changing scheduling, collection, the editor, the
+    digest, the repeat check, the shared code or deploys).
+- **Pending owner step: workload identity federation.** Complete the Console wizard
+  (docs/editor.md, "Setting up federation"), confirm an editor log says
+  `auth: workload identity federation (GitHub OIDC token)`, then delete the
+  `ANTHROPIC_API_KEY` repository secret. Until then every run uses that secret.
+- **Dates:**
+  - The Vault GitHub token (`github_dispatch_token`, which Supabase Cron dispatches
+    with) expires around **2027-01-10**. Renew it around **2027-01-03**
+    (`docs/scheduling.md`).
+  - The Supabase deploy token (`SUPABASE_ACCESS_TOKEN`) never expires.
+- **Cleanup list** (the next session):
+  - **Old rows from disabled sources** are still in the cache: HF Spaces 164,
+    VentureBeat 4, any Reddit.
+  - **Show HN's large share of the cache** (889 items). Collect fewer per run, or keep
+    low-rated items for less time, and check the table size against the free tier's
+    500 MB.
+  - **Explicit grants in migrations 001 and 002** (see "Supabase change, Oct 30, 2026"
+    below).
+  - **The `npm audit` warnings.**
+  - **Stale settings and docs:** the SQLite self-host docs, and the unused
+    `priorities`, `maxItems` and `schedule` settings in the `digest` section of
+    `sources.yaml`.
+  - **Lab domains in `PUBLISHERS`**, so "openai.com (via HN)" reads "OpenAI". This
+    changes the digest's outlets.
+  - **Trim whitespace from `SUPABASE_PROJECT_REF`** in `deploy-mcp.yml`. The first
+    deploy failed on two leading spaces.
+  - **The fallback summary's model:** it still calls Haiku 4.5 over raw `fetch`.
+  - **Generic rubric examples** instead of dated stories (the anchors overlap the
+    preview days).
+  - **A source health check.**
+  - **Commit the audit report** (`ranking-audit.md`, on the DGX Spark only) under
+    `docs/audits/`.
+  - **Delete merged branches.**
+- **Watch items:**
+  - The same story twice in one MCP answer under different keys, e.g. an essay about
+    the top story listed under builders. A possible fix is a same-day merge in the
+    shared code.
+  - The repeat memory warming up: right after PR #10 deployed, the history held only
+    the previous morning, so early repeats were expected.
+  - MI5-type explainers or recaps of never-shown older events (`DEC-019`). Revisit if
+    they keep reaching Top stories.
+- **Deferred:**
+  - Reddit through the official API.
+  - The full move to Supabase.
+  - More policy and business sources (AP, Axios and Reuters have no usable feeds).
+  - Discovery: a `SKILL.md`, MCP directory listings, and optionally Agensi.
 - **What step 4 adds** (`docs/mcp.md` has the detail):
   - **Shared code** in `supabase/functions/_shared/newsroom/` (`types`, `rows`,
     `source-names`, `stories`, `why`, `slots`): pure TS, no imports outside the
@@ -135,7 +183,7 @@ Sources are defined in `config/sources.yaml`. Each source has:
     items fetched while a digest is being built fall in the next window.
   - **A real send moves `last_digest_at`.** Never trigger an extra digest to test; use
     `npm run digest -- --preview --date …` (anon key, never writes).
-- **What the tuning PR adds** (`docs/digest.md`, "Repeats and updates"):
+- **What the tuning PR (#10) adds** (`docs/digest.md`, "Repeats and updates"):
   - **A daily newspaper**: a story shown in the last 7 days is never shown again unless
     it develops; then it is one story, headline "Update: ", ranked by its new items only.
     A small tweak is at most a line in Also notable. Never the same story twice a day.
@@ -200,6 +248,14 @@ CREATE INDEX idx_news_items_editor_story_key ON news_items(editor_story_key) WHE
 
 Auto-cleanup via pg_cron or collector job: `DELETE FROM news_items WHERE fetched_at < NOW() - INTERVAL '90 days'`
 
+### Supabase change, Oct 30, 2026
+
+Supabase stops granting Data API access automatically to **new** tables in `public`.
+Any new table needs explicit `grant` statements in the same migration, matching its
+RLS. Existing tables (`news_items`, `digest_state`) are unaffected. Migrations 001
+and 002 have no explicit grants, which matters only for a fresh setup; it's on the
+cleanup list.
+
 ### Query constraints that have caused real bugs
 
 - **Row identity is `(url, source)`.** Two sources legitimately carry the same link — 54 rows
@@ -237,7 +293,7 @@ fields when unjudged.
 GitHub rate limit from 60/hr to 5,000/hr.
 
 ## File Structure
-Generated from `git ls-files` (2026-10-21). Regenerate it from there rather than editing by hand.
+Generated from `git ls-files` (2026-10-22). Regenerate it from there rather than editing by hand.
 ```
 ai-newsroom/
 ├── .github/
@@ -253,6 +309,8 @@ ai-newsroom/
 │   ├── editor-rubric.md     # The AI editor's system prompt, versioned; tune here
 │   └── sources.yaml         # Source definitions (enable/disable, URLs, types)
 ├── docs/
+│   ├── DECISIONS.md         # Design decisions DEC-001…: alternatives, rationale, constraints
+│   ├── TROUBLESHOOTING.md   # Problems met: symptom, root cause, approaches tried, fix, evidence
 │   ├── digest.md            # The digest: stories, sections, fallback, layouts, preview
 │   ├── editor.md            # AI editor: how it works, rubric, cost, re-judging, auth setup
 │   ├── mcp.md               # MCP server: judgments, shared code, deploys, verifying what's live
@@ -442,6 +500,15 @@ only, so the heartbeat may no longer be needed. That hasn't been confirmed, so
 don't remove it until it is.
 
 ## Environment Variables
+
+**On a development machine** `.env` holds only `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+(read-only) and `ANTHROPIC_API_KEY`:
+- **No service key on dev machines.** Writes happen on GitHub Actions.
+- **One Anthropic key per machine.**
+- **Never `source .env` in the terminal you start Claude Code from.** Claude Code
+  then picks up `ANTHROPIC_API_KEY` and bills the API instead of the Max login.
+  This happened once. The npm scripts load `.env` themselves, through `dotenv`.
+
 ```
 # Supabase (required for hosted mode)
 SUPABASE_URL=https://xxx.supabase.co
