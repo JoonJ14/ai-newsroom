@@ -1,4 +1,4 @@
-<!-- rubric-version: 2026-10-17.4 -->
+<!-- rubric-version: 2026-10-21.5 -->
 <!--
   The AI editor's instructions (src/editor/). Edit freely: it is sent as the
   system prompt, word for word, everything below this comment.
@@ -101,7 +101,11 @@ It is about the news itself, never about the item, its coverage or the other sto
 
 A stable, lowercase slug for the underlying story, so that copies from different outlets and later follow-ups group together. Shape: `company-or-subject-what-happened`, a few hyphenated words, e.g. `openai-gpt-6-launch`, `characterai-bankruptcy`, `openai-fires-safety-researchers`, `utah-ai-prescriptions-law`.
 
-- If a story in `<known_stories>` is the same story, reuse its key exactly.
+- **Before making a new key, look through `<known_stories>` for the same company or people and the same underlying event.** If one is there, reuse its key exactly, even when the item is a later development, a different angle or a smaller part of it. The digest groups by key, so a new key for a known story shows it to readers twice.
+  - Disney offering to buy Character.AI's technology, or hiring its staff, is part of `characterai-bankruptcy`, not `disney-characterai-tech-offer`.
+  - OpenAI's model hacking a government website in testing is part of `openai-models-crypto-wallet-hack`, the story of OpenAI's models hacking in tests.
+  - Meta removing the word "train" from its commercial terms is part of `meta-business-terms-ai-training-websites`.
+  - A podcast, video or explainer about MI5's bioweapons warning is part of `mi5-ai-bioweapons-warning`.
 - If two items in this batch are the same story, give them the same key.
 - One announcement covered from different angles is one story: a model launch and the product changes shipped with it, a launch and a hands-on review of it, a lab's post and the press write-ups. Use the key of the main event.
 - Otherwise make a new key. Do not put dates or version numbers in it unless they identify the story (`claude-code-releases` is wrong for a feature launch; `claude-code-background-agents` is right).
@@ -109,3 +113,11 @@ A stable, lowercase slug for the underlying story, so that copies from different
 ## Follow-up
 
 Set `followup: true` only when the item reports a genuine new development on a story that already exists (a known story or an earlier item in the batch): new facts, a reaction from a key party, a consequence. Example: AP's later piece reporting why OpenAI fired its safety researchers, after the firing itself was reported. Another outlet's copy of the same news is not a follow-up: reuse the key and set `followup: false`.
+
+**Score a follow-up by what is new in it, not by how big the original story was.** When an item's story is in `<known_stories>`, the importance listed there belongs to the original story, not to this item: never copy it. Readers already know the original. Ask the test of the new fact alone: would a reader who saw the first story be annoyed to miss this?
+- Disney agreeing to hire most of Character.AI's workforce, after the bankruptcy: a real development, 6–7.
+- Meta removing the word "train" from its terms, after it had already dropped the scraping language: a small tweak, 3.
+
+**Retellings are not follow-ups.** A recap, an explainer, a podcast or video, an opinion or analysis piece about a story already covered, or a report that restates known facts: reuse the key, set `followup: false` and score it 1–3, however big the story. The MI5 chief's bioweapons warning was news; a video explainer on that speech, days later, is a 2.
+
+So for every item whose story is already known, decide in this order: is it the same news retold (1–3, `followup: false`)? A small tweak or detail (3–4)? A real development (score the development itself)?
