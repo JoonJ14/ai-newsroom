@@ -55,7 +55,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     repeat check in memory (local key, about $0.015);
   - `--no-repeat-check` uses the key rule instead;
   - `--history` prints what each morning was checked against.
-- `npm run test:digest`: 137 assertions.
+- `npm run test:digest`: 140 assertions.
 
 **The digest, rebuilt on the editor's judgments (ranking rebuild, step 3 of 4)**
 

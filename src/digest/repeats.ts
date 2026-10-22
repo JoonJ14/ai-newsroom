@@ -104,7 +104,7 @@ export function historyEntries(sections: Record<SectionId, Story[]>, date: strin
   return SECTIONS.flatMap((section) =>
     sections[section].map((s) => ({
       key: s.key,
-      keys: [...new Set([s.key, ...s.items.map((i) => i.judgment.storyKey), ...(s.update ? [s.update.continues] : [])])],
+      keys: [...new Set([s.key, ...s.items.map((i) => i.judgment.storyKey), ...(s.update ? [s.update.continues, ...(s.update.keys ?? [])] : [])])],
       headline: s.lead.judgment.headline,
       section,
       date,
@@ -344,7 +344,8 @@ export function namesIn(text: string): string[] {
   for (const raw of text.split(/[\s,;:!?"“”()[\]—–]+/)) {
     const word = raw.replace(/['’]s$/, '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
     if (!word) continue;
-    if (slug ? word.length < 4 : !/^[\p{Lu}\p{N}]/u.test(word)) continue;
+    // A capital or digit anywhere: Character.AI, GPT-6, MI5, and xAI or iPhone too
+    if (slug ? word.length < 4 : !/[\p{Lu}\p{N}]/u.test(word)) continue;
     const key = nameKey(word);
     if (!NOT_NAMES.has(word.toLowerCase()) && !OUTLET_WORDS.has(key) && !out.includes(key)) out.push(key);
   }
@@ -355,11 +356,13 @@ interface Names {
   /** The first name in the lead headline: usually who the story is about. */
   subject?: string;
   all: Set<string>;
+  /** The lead headline, normalized: an identical headline is always related, names or not. */
+  headline?: string;
 }
 
 const headlineNames = (lead: string, others: string[] = []): Names => {
   const first = namesIn(lead);
-  return { subject: first[0], all: new Set([...first, ...others.flatMap(namesIn)]) };
+  return { subject: first[0], all: new Set([...first, ...others.flatMap(namesIn)]), headline: normalize(lead) || undefined };
 };
 
 const storyNames = (s: Story): Names =>
@@ -372,6 +375,7 @@ const storyNames = (s: Story): Names =>
  * releases a PyTorch tool" and "Amazon launches a PyTorch tool" can't.
  */
 export function related(a: Names, b: Names): boolean {
+  if (a.headline !== undefined && a.headline === b.headline) return true;
   return (a.subject !== undefined && b.all.has(a.subject)) || (b.subject !== undefined && a.all.has(b.subject));
 }
 
@@ -479,7 +483,7 @@ export function applyRepeats(
         log.push(`${described} → repeat of "${entry.headline}" (key rule)`);
         continue;
       }
-      out.push(makeStory(lead.key, fresh, dir, { continues: entry.key, newFact: '', minor: false }));
+      out.push(makeStory(lead.key, fresh, dir, { continues: entry.key, newFact: '', minor: false, keys }));
       log.push(`${described} → update of "${entry.headline}" (key rule: follow-up since ${entry.date})`);
       continue;
     }
@@ -507,8 +511,13 @@ export function applyRepeats(
       log.push(`${described} → new`);
       continue;
     }
-    // An update (or a "new" story whose key was already shown): only what came after
-    const fresh = items.filter((it) => fetched(it) > entry.lastFetchedAt);
+    // An update (or a "new" story whose key was already shown): only what came
+    // after, and of that, the items the editor flagged as follow-ups when there
+    // are any. fetched_at is when we collected it, not whether it is news: a
+    // late copy of the original announcement mustn't head or rank the update
+    const after = items.filter((it) => fetched(it) > entry.lastFetchedAt);
+    const followups = after.filter((it) => it.judgment.followup);
+    const fresh = followups.length > 0 ? followups : after;
     if (fresh.length === 0) {
       dropped.push({ key: keyOf, headline: lead.lead.judgment.headline, reason: `nothing fetched since "${entry.headline}" was shown` });
       log.push(`${described} → repeat (nothing new since ${entry.date})`);
@@ -517,7 +526,7 @@ export function applyRepeats(
     // Minor only if every part is a minor update: a part the model saw as new or major isn't a tweak
     const minor = kept.every((i) => verdicts?.get(i)?.verdict === 'update' && verdicts.get(i)!.minor);
     const newFact = kept.map((i) => verdicts?.get(i)?.newFact).find(Boolean) ?? '';
-    out.push(makeStory(keyOf, fresh, dir, { continues: entry.key, newFact, minor }));
+    out.push(makeStory(keyOf, fresh, dir, { continues: entry.key, newFact, minor, keys }));
     log.push(`${described} → ${minor ? 'minor ' : ''}update of "${entry.headline}"${newFact ? `: ${newFact}` : ''}`);
   }
   return { stories: out, dropped, log };

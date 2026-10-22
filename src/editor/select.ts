@@ -54,7 +54,8 @@ export interface StoryUpdate {
   /** What is new, in a few words; logged. */
   newFact: string;
   /** A small tweak rather than a real development: never a top story. */
-  minor: boolean;
+  minor: boolean;  /** Every story key merged into it, items left out included: all go in the history. */
+  keys?: string[];
 }
 
 /** Sources whose items are papers. */

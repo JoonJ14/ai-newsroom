@@ -18,7 +18,7 @@ import { emptyUsage } from '../editor/client.js';
 import { itemOutlet, knownPublisher } from '../utils/source-names.js';
 import { buildDigest, EMPTY_INTRO, FOOTER_FALLBACK, NO_STORIES, UPDATE_PREFIX, type ShownStories } from './build.js';
 import {
-  checkRepeats, historyEntries, historyFromLegacy, parseHistory, pruneHistory, validateVerdicts,
+  checkRepeats, historyEntries, historyFromLegacy, namesIn, parseHistory, pruneHistory, validateVerdicts,
   type HistoryEntry, type RepeatCall, type RepeatPrompt,
 } from './repeats.js';
 import { chooseWhy, isMetaWhy } from './why.js';
@@ -363,6 +363,18 @@ section('repeat check — links must be plausible');
     judged('techcrunch_ai', { storyKey: 'amazon-torchneuron', importance: 6, headline: 'Google releases a tool to move PyTorch apps off Nvidia GPUs' }, at(TODAY)),
   ], DIR), [H('amazon-torchneuron', 'Amazon launches TorchNeuron, a PyTorch tool for its own chips', '2026-10-16', T0)], DIR, 4, '2026-10-17');
   check("a key borrowed from another company's story doesn't make it a repeat", [borrowed.dropped.length, borrowed.stories[0].update], [0, undefined]);
+  check('names with a lowercase initial count (xAI, iPhone)', [namesIn('xAI releases Grok 6'), namesIn('Apple ships the iPhone 18')], [['xai', 'grok', '6'], ['apple', 'iphone', '18']]);
+  const lower = await checkRepeats(groupStories([
+    judged('techcrunch_ai', { storyKey: 'xai-model', importance: 7, headline: 'xAI releases a new model' }, at(TODAY)),
+  ], DIR), [H('xai-model', 'xAI releases a new model', '2026-10-16', T0)], DIR, 4, '2026-10-17');
+  check('an identical headline is related even without names; the key rule then drops it', lower.dropped.map((d) => d.key), ['xai-model']);
+  const lateCopy = await checkRepeats(groupStories([
+    judged('techcrunch_ai', { storyKey: 'characterai-bankruptcy', importance: 9, headline: 'Character.AI files for bankruptcy' }, at(TODAY)),
+    judged('wired_ai', { storyKey: 'characterai-bankruptcy', importance: 5, followup: true, headline: "Disney hires Character.AI's staff" }, at(TODAY)),
+  ], DIR), HISTORY, DIR, 4, '2026-10-17', fakeCheck({ 'Character.AI files for bankruptcy': { verdict: 'update', continues: 'Character.AI files for bankruptcy' } }));
+  const u = lateCopy.stories.find((x) => x.update)!;
+  check('a late copy of the original, fetched today, neither heads nor ranks the update: the follow-up does',
+    [u.lead.judgment.headline, u.importance, u.items.length], ["Disney hires Character.AI's staff", 5, 1]);
 }
 
 section('repeat check — validating the answer');
