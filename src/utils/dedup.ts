@@ -21,10 +21,9 @@ import type { NewsItem } from '../collectors/types.js';
 
 const log = createLogger('dedup');
 
-export interface Coverage {
-  source: string;
-  url: string;
-}
+// Shared with the MCP server, which lists every copy as an outlet
+import type { Coverage } from '../../supabase/functions/_shared/newsroom/types.ts';
+export type { Coverage } from '../../supabase/functions/_shared/newsroom/types.ts';
 
 /** An HN thread's fields, carried together onto the row that absorbs it. */
 const HN_SIGNALS = ['hnId', 'hnLink', 'hnPoints', 'commentCount'] as const;

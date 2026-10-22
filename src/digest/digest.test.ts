@@ -54,7 +54,7 @@ function section(title: string) {
 }
 
 const SOURCES = loadSources();
-const DIR = sourceDirectory(SOURCES);
+const DIR = sourceDirectory();
 const SETTINGS: DigestSettings = digestSettings({});
 const NOW = new Date('2026-10-17T13:00:00.000Z');
 

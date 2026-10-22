@@ -2,29 +2,9 @@
  * AI Newsroom — Shared Types
  */
 
-/** A single news item normalized from any source */
-export interface NewsItem {
-  id?: string;
-  title: string;
-  url: string;
-  source: string;
-  sourceCategory: SourceCategory;
-  score: number;
-  summary?: string;
-  authors?: string;
-  tags: string[];
-  fetchedAt: string; // ISO 8601
-  publishedAt?: string; // ISO 8601
-  metadata?: Record<string, unknown>;
-}
-
-/** Source categories for filtering */
-export type SourceCategory =
-  | 'company_blog'
-  | 'community'
-  | 'research'
-  | 'github'
-  | 'industry_news';
+// NewsItem and SourceCategory are shared with the MCP server (Deno)
+import type { NewsItem, SourceCategory } from '../../supabase/functions/_shared/newsroom/types.ts';
+export type { NewsItem, SourceCategory } from '../../supabase/functions/_shared/newsroom/types.ts';
 
 /** Source definition from sources.yaml */
 export interface SourceConfig {

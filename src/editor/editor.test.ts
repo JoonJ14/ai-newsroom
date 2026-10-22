@@ -332,7 +332,7 @@ function judged(id: string, source: string, j: Partial<JudgedItem['judgment']>, 
     judged('p2', 'hf_daily_papers', { importance: 4, type: 'research' }),
     judged('lab', 'techcrunch_ai', { importance: 7, type: 'research' }),
   ];
-  const dir = sourceDirectory(loadSources());
+  const dir = sourceDirectory();
   const stories = groupStories(items, dir);
   const gpt6 = stories.find((s) => s.key === 'gpt6')!;
   check('copies grouped into one story', gpt6.items.length, 3);

@@ -13,8 +13,11 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYAML } from 'yaml';
-import type { NewsItem, SourceCategory, SourceConfig, SourcesConfig } from '../collectors/types.js';
-import type { Audience, EditorType, Judgment } from './judgment.js';
+import type { SourceConfig, SourcesConfig } from '../collectors/types.js';
+import {
+  BASE_COLUMNS, ITEM_COLUMNS, rowToItem, UNDEFINED_COLUMN, type Row, type StoredItem,
+} from '../../supabase/functions/_shared/newsroom/rows.ts';
+import type { Judgment } from './judgment.js';
 import type { KnownStory } from './prompt.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -40,22 +43,11 @@ export function readClient(): SupabaseClient {
   return createClient(url, key);
 }
 
-/** A judgment as stored, without the row id. */
-export type StoredJudgment = Omit<Judgment, 'id'> & { model: string | null; version: string | null; judgedAt: string };
-
-export type StoredItem = NewsItem & { id: string; judgment?: StoredJudgment };
+// Rows, columns and the row → item mapping are shared with the MCP server
+export { rowToItem, type StoredItem, type StoredJudgment } from '../../supabase/functions/_shared/newsroom/rows.ts';
 
 /** PostgREST's `db-max-rows`. */
 const PAGE = 1000;
-
-const BASE_COLUMNS =
-  'id, title, url, source, source_category, score, summary, authors, tags, fetched_at, published_at, metadata';
-const ITEM_COLUMNS =
-  `${BASE_COLUMNS}, editor_type, editor_importance, editor_audience, editor_headline, editor_why, ` +
-  'editor_story_key, editor_followup, editor_model, editor_version, editor_judged_at';
-
-/** Postgres "undefined_column": migration 004 has not been applied. */
-const UNDEFINED_COLUMN = '42703';
 
 export class MissingEditorColumnsError extends Error {
   constructor() {
@@ -73,42 +65,6 @@ let editorColumnsExist: boolean | undefined;
 /** False once a read has found the editor columns missing. */
 export function editorColumnsReadable(): boolean {
   return editorColumnsExist !== false;
-}
-
-// Rows come back untyped from the select string
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = Record<string, any>;
-
-export function rowToItem(row: Row): StoredItem {
-  const item: StoredItem = {
-    id: row.id,
-    title: row.title,
-    url: row.url,
-    source: row.source,
-    sourceCategory: row.source_category as SourceCategory,
-    score: row.score,
-    summary: row.summary ?? undefined,
-    authors: row.authors ?? undefined,
-    tags: row.tags ?? [],
-    fetchedAt: row.fetched_at,
-    publishedAt: row.published_at ?? undefined,
-    metadata: row.metadata ?? {},
-  };
-  if (row.editor_judged_at) {
-    item.judgment = {
-      type: row.editor_type as EditorType,
-      importance: row.editor_importance,
-      audience: row.editor_audience as Audience,
-      headline: row.editor_headline,
-      why: row.editor_why ?? '',
-      storyKey: row.editor_story_key,
-      followup: Boolean(row.editor_followup),
-      model: row.editor_model,
-      version: row.editor_version,
-      judgedAt: row.editor_judged_at,
-    };
-  }
-  return item;
 }
 
 const identity = <T>(q: T): T => q;

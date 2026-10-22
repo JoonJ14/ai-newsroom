@@ -8,14 +8,9 @@
  * and rejects an item it can't repair without failing the rest of its batch.
  */
 
-export const EDITOR_TYPES = [
-  'model_release', 'product_launch', 'policy_regulation', 'safety', 'business', 'legal',
-  'research', 'tool_release', 'opinion', 'tutorial', 'patch_release', 'other',
-] as const;
-export type EditorType = (typeof EDITOR_TYPES)[number];
-
-export const AUDIENCES = ['general', 'builder'] as const;
-export type Audience = (typeof AUDIENCES)[number];
+// The types and audiences are shared with the MCP server, which filters by them
+import { AUDIENCES, EDITOR_TYPES, type Audience, type EditorType } from '../../supabase/functions/_shared/newsroom/types.ts';
+export { AUDIENCES, EDITOR_TYPES, type Audience, type EditorType };
 
 /** As the model returns it: `ref` is the batch-local id (i1, i2, …) from the prompt. */
 export interface RawJudgment {

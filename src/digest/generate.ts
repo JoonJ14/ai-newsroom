@@ -217,7 +217,7 @@ async function main() {
     settings,
     layout,
     sources,
-    dir: sourceDirectory(sources),
+    dir: sourceDirectory(),
     deliver: (doc, l) => sendToAdapter(adapter, doc, l),
     summarize: generateAISummary,
     repeatCall: counted(repeat.call, repeatUsage),

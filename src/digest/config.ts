@@ -9,7 +9,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYAML } from 'yaml';
 import type { DigestConfig, SourcesConfig } from '../collectors/types.js';
-import { DEFAULT_RULES, type SectionRules } from '../editor/select.js';
+import { DEFAULT_MIN_JUDGED_SHARE, DEFAULT_RULES, type SectionRules } from '../editor/select.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -121,12 +121,12 @@ export function digestSettings(env: Env = process.env): DigestSettings {
     else warnings.push(`${name} must be an integer from ${min} to ${max}, got "${raw}"; using ${rules[field]}`);
   }
 
-  let minJudgedShare = 0.5;
+  let minJudgedShare = DEFAULT_MIN_JUDGED_SHARE;
   const rawShare = env.DIGEST_MIN_JUDGED_SHARE?.trim();
   if (rawShare) {
     const n = Number(rawShare);
     if (n >= 0 && n <= 1) minJudgedShare = n;
-    else warnings.push(`DIGEST_MIN_JUDGED_SHARE must be from 0 to 1, got "${rawShare}"; using 0.5`);
+    else warnings.push(`DIGEST_MIN_JUDGED_SHARE must be from 0 to 1, got "${rawShare}"; using ${DEFAULT_MIN_JUDGED_SHARE}`);
   }
 
   return { layout, rules, minJudgedShare, warnings };
