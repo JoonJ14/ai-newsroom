@@ -72,6 +72,12 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # The repeat check (src/digest/repeats.ts): one small Claude call per
+      # digest, with the editor's credentials. If it fails, the key rule is
+      # used and the digest still sends.
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -91,6 +97,13 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # The repeat check: same auth as the editor job above
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EDITOR_MODEL: ${{ vars.EDITOR_MODEL }}
           # Layout and thresholds, as repository variables (docs/digest.md).
           # Unset means the default: plain layout, thresholds in src/editor/select.ts.
           DIGEST_LAYOUT: ${{ vars.DIGEST_LAYOUT }}
@@ -104,4 +117,6 @@ jobs:
           DIGEST_BUILDERS_MIN_IMPORTANCE: ${{ vars.DIGEST_BUILDERS_MIN_IMPORTANCE }}
           DIGEST_PAPER_LIMIT: ${{ vars.DIGEST_PAPER_LIMIT }}
           DIGEST_PAPER_MIN_IMPORTANCE: ${{ vars.DIGEST_PAPER_MIN_IMPORTANCE }}
+          DIGEST_TOP_WEAK_SOURCE_MIN_IMPORTANCE: ${{ vars.DIGEST_TOP_WEAK_SOURCE_MIN_IMPORTANCE }}
+          DIGEST_MAX_PER_OUTLET: ${{ vars.DIGEST_MAX_PER_OUTLET }}
         run: npm run digest
