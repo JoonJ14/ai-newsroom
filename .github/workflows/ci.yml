@@ -31,10 +31,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - uses: denoland/setup-deno@v2.0.5
+        with:
+          deno-version: '2.9.8'
+
+      # The MCP Edge Function runs on Deno, which tsc doesn't check
+      # (tsconfig excludes supabase/). Fails if it no longer type-checks or
+      # bundles, or if it imports a local file the Supabase deploy wouldn't
+      # upload: everything must live under supabase/functions/ (the code shared
+      # with the digest is in supabase/functions/_shared/newsroom/).
+      - name: Edge Function type-check and bundle
+        run: |
+          deno check supabase/functions/mcp/index.ts
+          outside=$(deno info --json supabase/functions/mcp/index.ts \
+            | jq -r '.modules[].specifier | select(startswith("file://"))' \
+            | grep -v "^file://${GITHUB_WORKSPACE}/supabase/functions/" || true)
+          if [ -n "$outside" ]; then
+            echo "::error::the Edge Function imports files outside supabase/functions/, which a deploy won't upload:"
+            echo "$outside"
+            exit 1
+          fi
+          deno bundle --platform=deno supabase/functions/mcp/index.ts -o "$RUNNER_TEMP/mcp.js"
+          echo "bundled $(wc -c < "$RUNNER_TEMP/mcp.js") bytes"
+
       - name: Typecheck
         run: npm run typecheck
 
-      # Pure-function suite: no network, no Supabase credentials required.
+      # The live-lookup helpers, and the news tools against a fake Supabase
+      # client (judgments, shapes, filters, the digest's sections). No network.
       - name: MCP regression suite
         run: npm run test:mcp
 
