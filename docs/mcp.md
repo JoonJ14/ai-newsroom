@@ -141,10 +141,15 @@ deploy at a time, none cancelled), and only the access token as a secret,
 which the logs never print.
 
 **Credentials:**
-- **`SUPABASE_ACCESS_TOKEN`** is a repository secret: a scoped personal access
-  token with Edge Functions read and write, Project settings read, and
-  Projects (account wide) read. It has nothing else: no database, auth keys,
-  Edge Function secrets or organization settings.
+- **`SUPABASE_ACCESS_TOKEN`** is a repository secret: a scoped Supabase
+  personal access token that **never expires**. Its permissions:
+  - Application services → Edge Functions: read and write;
+  - Project → Project settings: read only;
+  - Account and organization → Projects (account wide): read only;
+  - everything else: none (no database, auth keys, Edge Function secrets or
+    organization settings).
+
+  The first deploy needed nothing more.
 - **`SUPABASE_PROJECT_REF`** is a repository variable: `jialdowpnekknmxrwrdq`.
 - **If a deploy fails with a permission error**, the token is minimal by
   design: add only the permission the error names.
@@ -167,6 +172,14 @@ endpoint served 8 tools with the old score-ordered sections and no commit in
 once, and its smoke test is what proves it works.
 
 ## Verifying what's live
+
+**Connecting from Claude Code** (once, for every project):
+
+```bash
+claude mcp add --scope user --transport http ai-newsroom https://jialdowpnekknmxrwrdq.supabase.co/functions/v1/mcp
+```
+
+After a deploy, reconnect from `/mcp` so the client fetches the new tool list.
 
 ```bash
 scripts/smoke-mcp.sh                       # the hosted endpoint: tools, commit, today's sections

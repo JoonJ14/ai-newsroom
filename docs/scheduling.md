@@ -6,6 +6,18 @@ fixed New York times and dispatches them. The code, the runners, the logs and
 merge-to-main-is-deploy are all unchanged.
 
 The SQL is in [`supabase/migrations/003_schedule_triggers.sql`](../supabase/migrations/003_schedule_triggers.sql).
+The decision and its alternatives are `DEC-017` in [`DECISIONS.md`](DECISIONS.md).
+
+**Status.**
+- **Verified in production (Oct 2026):** the test dispatch returned 204 and the
+  run started within seconds. The digest has landed at 9:00 AM ET every day
+  since.
+- **The Vault token** (`github_dispatch_token`) is a fine-grained PAT named
+  `ai-newsroom Supabase scheduler`, with a 90-day expiry. **It expires around
+  2027-01-10; renew it around 2027-01-03** (see "Renewing the token"). At
+  renewal the owner may switch to a non-expiring token.
+- **Free-tier keep-alive:** the collectors write every 6 hours, which also
+  keeps the free Supabase project from being paused for inactivity.
 
 ## Why
 
@@ -123,10 +135,16 @@ Open the Supabase SQL Editor, paste the whole of
 one `create or replace function` you edited, or the one `cron.schedule(...)` call.
 Named cron jobs are overwritten, not duplicated, and functions are replaced.
 
-Re-running the whole file should also work. Its pg_cron setup (`create
-extension` and the two grants on schema `cron`) now runs only when pg_cron isn't
-installed yet. Unguarded, those lines tripped Supabase's pg_cron access hook on
-a second run with "dependent privileges exist", and the file stopped there.
+**What's safe to re-run:**
+- **Always safe:** any single `create or replace function private.…` statement,
+  and any single `cron.schedule('newsroom-…', …)` call.
+- **The whole file:** since PR #7 its pg_cron setup (`create extension` and the
+  two grants on schema `cron`) runs only when pg_cron isn't installed yet, so a
+  whole-file re-run should also work. **It hasn't been tried on Supabase since
+  that guard was added**, so prefer running only what changed.
+
+  Before the guard, a full re-run tripped Supabase's pg_cron access hook with
+  "dependent privileges exist", and the file stopped there.
 
 ### 5. Verify
 
