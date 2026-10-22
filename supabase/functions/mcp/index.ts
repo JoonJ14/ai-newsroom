@@ -3,9 +3,14 @@
  *
  * Implements the Model Context Protocol over HTTP transport.
  * JSON-RPC 2.0 methods: initialize, tools/list, tools/call
+ *
+ * The news tools serve the AI editor's judgments with the same story code as
+ * the morning digest (supabase/functions/_shared/newsroom/). Reads only.
+ * Deployed by .github/workflows/deploy-mcp.yml on every merge to main.
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.102.1';
+import { BUILD_COMMIT } from './_shared/build-info.ts';
 import { TOOLS } from './_shared/tools.ts';
 import {
   handleGetTopPicks,
@@ -77,7 +82,8 @@ Deno.serve(async (req) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: 'ai-newsroom',
-        version: '0.1.0',
+        // The deployed commit, so a client can tell which code it's talking to
+        version: `0.2.0+${BUILD_COMMIT.slice(0, 12)}`,
       },
     });
   }
@@ -149,7 +155,7 @@ Deno.serve(async (req) => {
       // for these tells the client the server broke, so it retries a request
       // that can never succeed.
       const isCallerFault =
-        /^(Missing required parameter|Invalid repo|Invalid arxiv_id)\b/.test(message) ||
+        /^(Missing required parameter|Invalid parameter|Invalid repo|Invalid arxiv_id)\b/.test(message) ||
         /^(Repo not found|No ArXiv paper found)\b/.test(message);
       return jsonRpcError(id, isCallerFault ? -32602 : -32603, message);
     }
