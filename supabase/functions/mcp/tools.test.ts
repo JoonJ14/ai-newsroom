@@ -347,6 +347,12 @@ section('search — every match ranked and filtered, not the top 100 by score fi
   const sb = fakeClient(rows);
   check('a low-score, high-importance match survives a filter', (await handleSearch(sb, { query: 'claude', min_importance: 9 })).items.map((e) => e.story_key), ['claude-6']);
   check('and leads without one', (await handleSearch(sb, { query: 'claude' })).items[0].story_key, 'claude-6');
+  seq = 0;
+  const summaryOnly = fakeClient([
+    ...Array.from({ length: 5 }, () => row('devto_ai', { importance: 3 }, { title: 'Agents explained' })),
+    row('openai_news', { importance: 9, headline: 'OpenAI ships GPT-7', story_key: 'gpt-7' }, { title: 'Introducing GPT-7', summary: 'Our new agents model' }),
+  ]);
+  check('filtered-out title matches don\'t skip the summary search', (await handleSearch(summaryOnly, { query: 'agents', min_importance: 9 })).items.map((e) => e.story_key), ['gpt-7']);
 }
 
 // ─── list tools ──────────────────────────────────────────────────

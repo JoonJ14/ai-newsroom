@@ -109,7 +109,9 @@ export async function handleSearch(sb: SupabaseClient, params: Record<string, un
   const found = new Map<string, FetchResult['items'][number]>();
   for (const i of [...titles.items, ...headlines.items]) found.set(i.id, i);
   let truncated = titles.truncated || headlines.truncated;
-  if (found.size < 5) {
+  // Few stories that pass the filters, not few rows: five low-rated title
+  // matches mustn't stop a summary-only match from being found
+  if (rankEntries([...found.values()], filters).length < 5) {
     const summaries = await fetchRows(sb, { since, search: { column: 'summary', query: queryStr } }, SEARCH_MAX_ROWS);
     for (const i of summaries.items) found.set(i.id, i);
     truncated ||= summaries.truncated;
