@@ -397,10 +397,13 @@ section('scrapeAnthropicListing — the layout since about Oct 19, 2026 (fixture
   const direct = scrapeAnthropicListing(`<main>
     <a href="/news/side-by-side"><time>Oct 9, 2026</time><h4>Date and title side by side</h4><p>Its summary.</p></a>
     <div><time>Oct 8, 2026</time><h4>Not in a link, title beside the date</h4><a href="/news/beside">Read more</a></div>
+    <a href="/news/date-in-heading"><h3><time>Oct 7, 2026</time> Date inside the heading</h3></a>
   </main>`, SOURCE, 'https://www.anthropic.com/news');
-  check('a date and title side by side in one element (the card itself) still parse',
-    direct.map((i) => `${i.url.replace('https://www.anthropic.com', '')} ${i.title} ${i.summary ?? '-'}`),
-    ['/news/side-by-side Date and title side by side Its summary.', '/news/beside Not in a link, title beside the date -']);
+  check('a date and title side by side in one element (the card itself), or the date inside the heading, still parse',
+    direct.map((i) => `${i.url.replace('https://www.anthropic.com', '')} ${i.title} ${i.summary ?? '-'}`), [
+      '/news/side-by-side Date and title side by side Its summary.', '/news/beside Not in a link, title beside the date -',
+      '/news/date-in-heading Oct 7, 2026 Date inside the heading -',
+    ]);
   check('only web pages on anthropic.com: javascript: and data: links are skipped, whatever their host',
     schemes.map((i) => i.url), ['http://www.anthropic.com/news/plain-http']);
 }
@@ -441,10 +444,12 @@ section('a listing page that loads but gives no posts — a loud warning, never 
     else process.env.GITHUB_ACTIONS = hadActions;
   }
   const annotations = printed.filter((l) => l.startsWith('::warning title=Scraper::'));
-  check('a %, CR or LF in the message is escaped: one annotation, one line, no second command', [
-    printed.some((l) => l.split('\n').some((line) => line.startsWith('::error'))),
-    annotations.some((l) => l.includes('Bad%0A::error::injected 100%25: https://www.anthropic.com/news loaded')),
-  ], [false, true]);
+  // The annotation's own message is escaped; ordinary log lines print the configured name as it is
+  const injected = annotations.filter((l) => l.includes('injected'));
+  check('a %, CR or LF in the annotation is escaped: one line, so no second command', [
+    injected.length, injected.every((l) => !/[\r\n]/.test(l)),
+    injected[0]?.includes('Bad%0A::error::injected 100%25: https://www.anthropic.com/news loaded'),
+  ], [1, true, true]);
   check('escapeAnnotation', escapeAnnotation('a%b\r\nc'), 'a%25b%0D%0Ac');
   check('on Actions: one ::warning annotation per page, naming it; the run goes on with no items', [
     threw, items?.length, annotations.filter((l) => l.includes('::Anthropic News: ')).length,

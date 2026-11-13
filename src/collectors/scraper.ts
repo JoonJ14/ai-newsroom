@@ -241,12 +241,15 @@ const MAX_CARD_DEPTH = 8;
 /**
  * The date's own line: the element around the `<time>` that holds its
  * category label(s), as a card's `<header>` does. None when that element is
- * the card itself: a link, or one holding a heading (an old card could be
- * `<a><time/><h4/></a>`, its date and title side by side).
+ * the card or its title: a link, a heading or title, or one holding a heading
+ * (an old card could be `<a><time/><h4/></a>`, its date and title side by
+ * side, or put the date inside the heading).
  */
 function dateLineOf($: cheerio.CheerioAPI, $time: cheerio.Cheerio<AnyNode>): AnyNode | undefined {
   const $parent = $time.parent();
-  if (!$parent.length || $parent.is('a, main, body') || $parent.find(HEADINGS).length) return undefined;
+  if (!$parent.length || $parent.is(`a, main, body, ${HEADINGS}, ${TITLE_CLASSES}`) || $parent.find(HEADINGS).length) {
+    return undefined;
+  }
   return $parent[0];
 }
 
