@@ -94,6 +94,9 @@ export function sourceDisplayName(source: string): string {
  * rather than "Hacker News". Names match SOURCE_DISPLAY_NAMES where a
  * publisher is also a direct source, so the two copies can be listed once.
  * A subdomain matches its domain (uk.reuters.com → Reuters).
+ *
+ * The press only: labs are in LAB_PUBLISHERS. The repeat check reads these
+ * names as outlet words, never a story's subject (src/digest/repeats.ts).
  */
 export const PUBLISHERS: Readonly<Record<string, string>> = {
   'reuters.com': 'Reuters',
@@ -135,6 +138,41 @@ export const PUBLISHERS: Readonly<Record<string, string>> = {
   'science.org': 'Science',
 };
 
+/**
+ * Labs by domain, for Hacker News links to a lab's own site: "OpenAI", not
+ * "openai.com (via HN)". A lab with a direct source has that source's name
+ * from SOURCE_DISPLAY_NAMES, so a story it carried directly and HN linked to
+ * is listed once (blog.google is Google AI, research.google Google Research).
+ * A subdomain matches its domain (alignment.openai.com → OpenAI).
+ *
+ * Naming only (docs/DECISIONS.md, DEC-021), and kept apart from PUBLISHERS:
+ * - The repeat check treats PUBLISHERS' names as outlet words, never a story's
+ *   subject; OpenAI in a headline is the subject (src/digest/repeats.ts).
+ * - The ranking (strong sources, the per-outlet cap, how widely a story was
+ *   carried) reads rankingOutlet, where a lab's site via HN is still its bare
+ *   domain, until the owner decides it should count as the lab.
+ */
+export const LAB_PUBLISHERS: Readonly<Record<string, string>> = {
+  'openai.com': 'OpenAI',
+  'anthropic.com': 'Anthropic',
+  'claude.com': 'Anthropic',
+  'deepmind.google': 'Google DeepMind',
+  'blog.google': 'Google AI',
+  'research.google': 'Google Research',
+  'ai.meta.com': 'Meta AI',
+  'about.fb.com': 'Meta AI',
+  'nvidia.com': 'NVIDIA',
+  'nvidia.github.io': 'NVIDIA',
+  'x.ai': 'xAI',
+  'mistral.ai': 'Mistral',
+  // No direct source; seen via HN in the cache (Nov 2026)
+  'cohere.com': 'Cohere',
+  'microsoft.ai': 'Microsoft AI',
+  'machinelearning.apple.com': 'Apple',
+  'aboutamazon.com': 'Amazon',
+  'tencent.com': 'Tencent',
+};
+
 /** The URL's host without "www.", lowercased; '' if it isn't a URL. */
 export function urlHost(url: string): string {
   try {
@@ -144,26 +182,48 @@ export function urlHost(url: string): string {
   }
 }
 
-/** The publisher's name for a URL, if its domain is a known one. */
-export function knownPublisher(url: string): string | undefined {
+/** The name a domain map gives a URL's host or, failing that, one of its parent domains. */
+function lookupDomain(map: Readonly<Record<string, string>>, url: string): string | undefined {
   const host = urlHost(url);
   for (let h = host; h.includes('.'); h = h.slice(h.indexOf('.') + 1)) {
-    if (PUBLISHERS[h]) return PUBLISHERS[h];
+    if (map[h]) return map[h];
   }
   return undefined;
+}
+
+/** The publisher's name for a URL, if its domain is a known publisher (the press, PUBLISHERS). */
+export function knownPublisher(url: string): string | undefined {
+  return lookupDomain(PUBLISHERS, url);
+}
+
+/** The lab's name for a URL on a lab's own site (LAB_PUBLISHERS). */
+export function knownLab(url: string): string | undefined {
+  return lookupDomain(LAB_PUBLISHERS, url);
 }
 
 /** Sources whose items are Hacker News stories: their URL is usually someone else's article. */
 const HN_SOURCES = new Set(['hackernews_top']);
 
+export interface Outlet {
+  name: string;
+  publisher: string;
+  viaHN: boolean;
+}
+
 /**
- * Who an item's reader should credit. A Hacker News link to an external
- * article names the publisher, "Reuters (via HN)", or the bare domain when
- * the publisher isn't known. HN text posts (news.ycombinator.com) stay
- * "Hacker News", and Show HN items, which link to the project itself, stay
- * "Show HN". Every other source is its display name.
+ * An item's outlet as the ranking sees it: the per-outlet cap, the
+ * strong-source test and how widely a story was carried (stories.ts). A
+ * Hacker News link to an external article is its publisher, "Reuters (via
+ * HN)", or its bare domain when the press map doesn't know it, a lab's own
+ * site included. HN text posts (news.ycombinator.com) stay "Hacker News", and
+ * Show HN items, which link to the project itself, stay "Show HN". Every other
+ * source is its display name.
+ *
+ * Labs are named only for readers (itemOutlet), so naming them changed how
+ * outlets read, not the ranking (DEC-021). If the owner decides a lab's site
+ * via HN should count as the lab, this is the place.
  */
-export function itemOutlet(source: string, url: string): { name: string; publisher: string; viaHN: boolean } {
+export function rankingOutlet(source: string, url: string): Outlet {
   const host = urlHost(url);
   if (HN_SOURCES.has(source) && host && host !== 'news.ycombinator.com') {
     const publisher = knownPublisher(url) ?? host;
@@ -171,4 +231,15 @@ export function itemOutlet(source: string, url: string): { name: string; publish
   }
   const name = sourceDisplayName(source);
   return { name, publisher: name, viaHN: false };
+}
+
+/**
+ * Who an item's reader should credit: rankingOutlet, except that a Hacker
+ * News link to a lab's own site names the lab, "OpenAI (via HN)", so it is
+ * listed once with the lab's own copy.
+ */
+export function itemOutlet(source: string, url: string): Outlet {
+  const outlet = rankingOutlet(source, url);
+  const lab = outlet.viaHN ? knownLab(url) : undefined;
+  return lab ? { name: `${lab} (via HN)`, publisher: lab, viaHN: true } : outlet;
 }

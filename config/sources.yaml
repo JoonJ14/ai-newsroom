@@ -518,35 +518,12 @@ groups:
   industry: [infoq_ai, thenewstack_ai]
 
 # ============================================
-# Digest Configuration (personal layer)
+# Digest Configuration
 # ============================================
+# What the digest shows comes from the AI editor's judgments
+# (config/editor-rubric.md) and its thresholds from environment variables
+# (docs/digest.md). When it runs is set by Supabase Cron (docs/scheduling.md).
 digest:
-  # Priority topics for relevance filtering (ordered by importance)
-  priorities:
-    - label: "Anthropic & Claude Code updates"
-      keywords: [anthropic, claude, claude-code, sonnet, opus, haiku, mcp]
-      weight: 10
-    - label: "OpenAI & Codex updates"
-      keywords: [openai, codex, gpt, chatgpt, o1, o3]
-      weight: 9
-    - label: "AI agent orchestration & MCP"
-      keywords: [agent, mcp, orchestration, multi-agent, tool-use, function-calling, agentic]
-      weight: 8
-    - label: "Gesture recognition & computer vision"
-      keywords: [gesture, hand-tracking, pose-estimation, computer-vision, mediapipe, real-time-detection]
-      weight: 7
-    - label: "Google AI products & research"
-      keywords: [gemini, stitch, antigravity, firebase-studio, deepmind, google-ai]
-      weight: 6
-    - label: "NVIDIA & GPU ecosystem"
-      keywords: [nvidia, cuda, tensorrt, dgx, jetson, cosmos]
-      weight: 5
-
-  # Delivery schedule (cron syntax)
-  schedule: "0 7 * * *"  # 7:00 AM daily
-
-  # Maximum items in digest
-  maxItems: 15
-
   # Delivery adapter: discord | telegram | slack | imessage
+  # (DIGEST_ADAPTER in the environment overrides it)
   adapter: discord

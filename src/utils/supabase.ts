@@ -5,6 +5,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from './logger.js';
 import { CARRIED_SIGNALS, mergeCoverage, type Coverage } from './dedup.js';
+import { cutoffIso, RETENTION_DAYS, whereLowImportanceExpired, type LowImportanceRule } from './retention.js';
 import type { NewsItem } from '../collectors/types.js';
 
 const log = createLogger('supabase');
@@ -169,23 +170,52 @@ export async function upsertNewsItems(items: NewsItem[]): Promise<number> {
 }
 
 /**
- * Delete news items older than the given number of days.
+ * Delete news items fetched more than `days` ago (src/utils/retention.ts).
+ * The count comes from the response header rather than the deleted rows, which
+ * PostgREST would return 1,000 at most (db-max-rows).
  */
-export async function deleteOldItems(days: number = 7): Promise<number> {
+export async function deleteOldItems(days: number = RETENTION_DAYS, now: Date = new Date()): Promise<number> {
   const sb = getSupabaseClient();
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await sb
+  const { count, error } = await sb
     .from('news_items')
-    .delete()
-    .lt('fetched_at', cutoff)
-    .select('id');
+    .delete({ count: 'exact' })
+    .lt('fetched_at', cutoffIso(now, days));
 
   if (error) {
     throw new Error(`Cleanup failed: ${error.message}`);
   }
 
-  const deleted = data?.length ?? 0;
+  const deleted = count ?? 0;
   log.info(`Deleted ${deleted} items older than ${days} days`);
   return deleted;
+}
+
+/**
+ * Delete items the AI editor rated at most `rule.maxImportance`, fetched more
+ * than `rule.days` ago. Unjudged items are never touched (src/utils/retention.ts).
+ */
+export async function deleteLowImportanceItems(rule: LowImportanceRule, now: Date = new Date()): Promise<number> {
+  const sb = getSupabaseClient();
+
+  const { count, error } = await whereLowImportanceExpired(sb.from('news_items').delete({ count: 'exact' }), rule, now);
+
+  if (error) {
+    throw new Error(`Low-importance cleanup failed: ${error.message}`);
+  }
+
+  const deleted = count ?? 0;
+  log.info(`Deleted ${deleted} items rated ${rule.maxImportance} or lower, older than ${rule.days} days`);
+  return deleted;
+}
+
+/**
+ * Both retention rules, with one captured time: `npm run cleanup` and the end
+ * of `npm run collect` run this. `rule` null means the low-importance rule is
+ * switched off (lowImportanceRule in src/utils/retention.ts).
+ */
+export async function applyRetention(rule: LowImportanceRule | null, now: Date = new Date()): Promise<{ old: number; low: number }> {
+  const old = await deleteOldItems(RETENTION_DAYS, now);
+  const low = rule ? await deleteLowImportanceItems(rule, now) : 0;
+  return { old, low };
 }

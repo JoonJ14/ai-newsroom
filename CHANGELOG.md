@@ -6,14 +6,75 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-> **Deploy note:** since step 4, `.github/workflows/deploy-mcp.yml` deploys the
-> MCP Edge Function on every merge to `main` that touches it, and smoke-tests the
-> live endpoint. Before that nothing deployed it. **First deploy: 2026-10-22,
-> commit `1f0d295`** (run `39726965410`), after removing two leading spaces from
-> the `SUPABASE_PROJECT_REF` variable that failed the merge-triggered run
-> (docs/TROUBLESHOOTING.md). It shipped everything below at once. The smoke
-> test passed on the first attempt, and production then reported 8 tools, 100%
-> of the last 24 hours judged, and the digest's sections in `get_top_picks`.
+### Cleanup after the rebuild — 2026-11-13 (PR #13)
+
+A tidy-up after the ranking rebuild. No new features, and no change to the
+ranking, the rubric, thresholds or the repeat check's logic (its prompt lists
+outlets under their new names, as the digest shows them). Design reasoning:
+`DEC-020` and `DEC-021` in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+#### Changed
+
+- **Hacker News links to a lab's own site name the lab**: "OpenAI (via HN)",
+  not "openai.com (via HN)". A lab that also carried the story directly is
+  listed once. The new `LAB_PUBLISHERS` map in the shared `source-names.ts`
+  covers OpenAI, Anthropic (`anthropic.com`, `claude.com`), Google DeepMind,
+  Google AI (`blog.google`), Google Research, Meta AI (`ai.meta.com`,
+  `about.fb.com`), NVIDIA (`nvidia.com` and subdomains, `nvidia.github.io`),
+  xAI and Mistral. It also covers the lab domains found via HN in the cache:
+  Cohere, Microsoft AI, Apple (`machinelearning.apple.com`), Amazon
+  (`aboutamazon.com`) and Tencent.
+  - In the digest and the MCP's `outlets` alike.
+  - **Naming only.** The ranking reads `rankingOutlet`, the outlet as it was
+    before: the strong-source test, the per-outlet cap and the "most widely
+    carried" tiebreak (`Story.breadth`). The repeat check's `OUTLET_WORDS` is
+    unchanged too. Keeping it naming-only is the owner's decision
+    (2026-11-13, `DEC-021`).
+  - Digest previews (`--no-repeat-check`) of Oct 15 and 19 differ from `main`
+    only in outlet names. Nov 6, 11 and 13 are identical.
+- **Items the AI editor rated 1–2 are deleted 14 days after they were
+  fetched**; everything else keeps the 90 days, and unjudged items are never
+  deleted early. Settings: `CLEANUP_LOW_IMPORTANCE_MAX` (0 switches the rule
+  off) and `CLEANUP_LOW_IMPORTANCE_DAYS` (8–90). `npm run cleanup` and the end
+  of `npm run collect` apply the same rules. The first run removes about 1,350
+  of 11,314 rows. The deletes count rows from the response header, past
+  PostgREST's 1,000-row cap.
+- **The fallback digest's AI summary uses the editor's client and model**
+  (federation, then `ANTHROPIC_API_KEY`; `claude-haiku-5-5`, effort `low`, a
+  1,024-token cap, a 30 s timeout, one retry, at most 800 characters so the
+  intro always fits Discord's first message). Its prompt now treats titles as
+  data, as the editor's does. It called Haiku 4.5 over raw
+  `fetch` with the API key only, so once that secret was deleted it was
+  skipped without a word. Any failure still leaves it out, now with a warning.
+
+#### Fixed
+
+- **`deploy-mcp.yml` trims and checks `SUPABASE_PROJECT_REF` first.** The
+  first deploy failed on two leading spaces. `scripts/project-ref.sh` strips
+  surrounding whitespace and fails in seconds, showing the value, unless 20
+  lowercase letters are left. Tested in CI by `scripts/project-ref.test.sh`.
+
+#### Removed
+
+- The SQLite self-host option from the README and CLAUDE.md (no code
+  implemented it), with `NEWSROOM_STORAGE` / `NEWSROOM_DB_PATH`, and the
+  `better-sqlite3` and `@types/better-sqlite3` dependencies.
+- The `priorities`, `schedule` and `maxItems` settings of the `digest` section
+  in `sources.yaml`, which nothing read, with the README's "Change digest
+  priority topics". `adapter` stays.
+
+#### Documentation
+
+- **Workload identity federation is live** (Nov 13, 2026). The rule's settings
+  are recorded in `docs/editor.md`, with the rename warning. The
+  `ANTHROPIC_API_KEY` repository secret is deleted.
+- TROUBLESHOOTING:
+  - **New:** "Token exchange failed" (`match_subject_prefix`; Branch/ref needs
+    `refs/heads/main`).
+  - **New:** the one-off SQL for old rows from disabled sources.
+  - **Resolved:** the lab-domains entry.
+- CLAUDE.md's cleanup list is down to what's left. The README's step 3 says
+  "(done)", and its "Pending (owner)" line is gone.
 
 ### Ranking rebuild, steps 2–4 — 2026-10-16 → 2026-10-22
 
@@ -23,6 +84,15 @@ root causes, the options considered, evidence) is in
 The debugging stories are in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md),
 and the design decisions (`DEC-001`–`DEC-019`) in
 [`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+> **Deploy note:** since step 4, `.github/workflows/deploy-mcp.yml` deploys the
+> MCP Edge Function on every merge to `main` that touches it, and smoke-tests the
+> live endpoint. Before that nothing deployed it. **First deploy: 2026-10-22,
+> commit `1f0d295`** (run `39726965410`), after removing two leading spaces from
+> the `SUPABASE_PROJECT_REF` variable that failed the merge-triggered run
+> (docs/TROUBLESHOOTING.md). It shipped everything below at once. The smoke
+> test passed on the first attempt, and production then reported 8 tools, 100%
+> of the last 24 hours judged, and the digest's sections in `get_top_picks`.
 
 | Step | Branch | PR | Merge | Codex findings fixed |
 |---|---|---|---|---|

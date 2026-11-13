@@ -8,10 +8,112 @@ README's Troubleshooting section.
 
 Phases: scheduling (PRs #5–#6), then the ranking rebuild: step 1 collection
 (PR #7), step 2 the AI editor (PR #8), step 3 the digest (PR #9) and its tuning
-(PR #10), step 4 the MCP server (PR #11). The scheduling and step-1 entries at
+(PR #10), step 4 the MCP server (PR #11). Then the federation setup and the
+cleanup after the rebuild (Nov 2026, PR #13). The scheduling and step-1 entries at
 the end were written afterwards, from PRs #5–#7, `docs/scheduling.md`,
 migration 003 and `reviews/review-2026-10-14-a25a5ce.md`. The full session record for steps 2–4 is
 [`sessions/2026-10-22-ranking-rebuild-steps-2-4.md`](sessions/2026-10-22-ranking-rebuild-steps-2-4.md).
+
+---
+
+## OPEN (owner step) — Old rows from disabled sources are still in the cache
+**Phase:** cleanup (PR #13) | **Severity:** Low | **Status:** Open until the owner runs the SQL below (optional)
+
+**Symptom.** Sources disabled in step 1 (PR #7) still have rows in
+`news_items`. On 2026-11-13: HF Trending Spaces 107 rows (fetched Aug 15 –
+Oct 14), VentureBeat 4 (Aug 19–27). No Reddit rows are left: they aged out.
+xAI's blog is disabled too, with no rows.
+
+**Diagnosis.** Disabling a source stops collection. It doesn't delete what was
+collected, and that is deliberate.
+
+**Solutions considered.**
+- *Delete rows by source automatically when a source is disabled.* Rejected: a
+  source disabled for a while (blocked by a bot challenge, a broken feed)
+  would lose its history.
+- *Leave them to the 90-day rule.* That works on its own: the last HF Spaces
+  rows go around Jan 12, 2027. The 14-day rule for rows rated 1–2
+  (`DEC-020`) takes 9 of them sooner.
+- *A one-off SQL block the owner runs by hand* (chosen), for anyone who wants
+  them gone now.
+
+**Fix.** In the Supabase dashboard → SQL Editor, in two separate runs. The
+list is the sources disabled in `config/sources.yaml` on 2026-11-13. Check
+that file again before running this later: a source re-enabled since then
+must come off the list.
+
+**1. The preview, on its own** (read only). Paste only this block, run it, and
+check the counts:
+
+```sql
+select source, count(*) as rows, min(fetched_at) as oldest, max(fetched_at) as newest
+from news_items
+where source in ('venturebeat_ai', 'xai_blog', 'reddit_claudeai', 'reddit_localllama',
+                 'reddit_machinelearning', 'reddit_openai', 'reddit_artificial',
+                 'hf_trending_spaces')
+group by source
+order by source;
+```
+
+**2. Then the delete**, as a separate run. It can't be undone. The SQL Editor
+runs everything in the box and shows only the last result, so don't paste
+both blocks at once:
+
+```sql
+delete from news_items
+where source in ('venturebeat_ai', 'xai_blog', 'reddit_claudeai', 'reddit_localllama',
+                 'reddit_machinelearning', 'reddit_openai', 'reddit_artificial',
+                 'hf_trending_spaces')
+returning source;
+```
+
+It lists one row per deleted item. The count should match the preview's total
+(111 on 2026-11-13, fewer after the 14-day rule's first run), and a second run
+of the preview should return nothing. Nothing else refers to these rows:
+`digest_state.story_history` keeps keys and headlines, not row ids.
+
+---
+
+## RESOLVED — Federation: every editor batch failed with 401 "Token exchange failed"
+**Phase:** federation setup (Nov 2026) | **Severity:** High | **Status:** Resolved
+**Date resolved:** 2026-11-13
+
+**Symptom.** After the owner set the four `ANTHROPIC_*` federation variables,
+the editor's log said `auth: workload identity federation (GitHub OIDC token)`,
+so the client had picked federation, but every batch failed with HTTP 401
+"Token exchange failed". Nothing was judged.
+
+**Where to look.** Claude Console → Settings → Workload identity →
+**Authentication events**. Each failed exchange is listed there with its
+reason; these said `match_subject_prefix`.
+
+**Diagnosis / root cause.** The rule's subject prefix didn't match the `sub`
+claim GitHub puts in the job's token,
+`repo:JoonJ14/ai-newsroom:ref:refs/heads/main`. The Console builds the prefix
+from the rule's **Branch/ref** field, which said `refs/head/main` (a missing
+"s"). The field takes the full ref: `main` fails too, and so does
+`refs/head/main`.
+
+**How to diagnose it next time.** Expand the failed event, then compare
+`oidc_token.claims.sub` with the rule's Match section, character by character.
+
+**Fix.** The owner set Branch/ref to `refs/heads/main`. The rule's other
+settings are in `docs/editor.md` ("The federation rule").
+
+**Results & verification.** The next editor run authenticated through
+federation and judged 33 of 33 items. The owner then deleted the
+`ANTHROPIC_API_KEY` repository secret, so GitHub holds no Anthropic key.
+
+**Worth knowing.** While the federation variables are set, a failed exchange
+does **not** fall back to `ANTHROPIC_API_KEY` (and the secret is gone anyway).
+`authMode` in `src/editor/client.ts` picks federation whenever the IDs and the
+job's OIDC token are present, and a rejected exchange is an error. So a broken
+rule stops the editor (the digest then falls back to the old ranking), the
+repeat check (the key rule is used) and the fallback summary (left out). The
+editor jobs are allowed to fail, so the runs can still look green: check the
+editor job's log. The rule must also be edited if the GitHub user or the
+repository is ever renamed. The numeric organization ID survives a rename;
+the name fields don't.
 
 ---
 
@@ -59,8 +161,9 @@ in place:
 
 ---
 
-## OPEN — HN links to a lab's own site show as a bare domain
-**Phase:** MCP (PR #11) | **Severity:** Low | **Status:** Open
+## RESOLVED — HN links to a lab's own site show as a bare domain
+**Phase:** MCP (PR #11) | **Severity:** Low | **Status:** Resolved in PR #13
+**Date resolved:** 2026-11-13
 
 **Symptom.** A story can list `OpenAI` and then `openai.com (via HN)` (or
 `alignment.openai.com (via HN)`).
@@ -70,12 +173,44 @@ in place:
 that map, so the bare domain is shown, and it isn't merged with the lab's own
 direct copy.
 
-**Solutions considered.** Add `openai.com`, `anthropic.com`, `deepmind.google`
-and similar to `PUBLISHERS`. That map also decides which copies count as strong
-sources and how the digest lists outlets, so the change would alter the
-digest's output, which was out of scope for step 4.
+**Solutions considered.**
+- *Add `openai.com`, `anthropic.com`, `deepmind.google` and similar to
+  `PUBLISHERS`.* Two side effects ruled it out:
+  - The repeat check reads `PUBLISHERS`' names as outlet words, which are
+    never a story's subject (`OUTLET_WORDS` in `src/digest/repeats.ts`).
+    "OpenAI" would stop counting as the subject of "OpenAI launches GPT-7",
+    and the check's link validation (`DEC-011`) would weaken.
+  - `PUBLISHERS` also decides which copies are strong sources and which outlet
+    a story counts as for the per-outlet cap. A preview of Oct 19 showed the
+    effect: the alignment.openai.com post, rated 7, moved from Also notable
+    into Top stories and pushed an Ars Technica story out. The owner asked for
+    outlets to change, not the ranking.
+- *A separate map used for naming only* (chosen, `DEC-021`).
 
-**Fix.** Deferred to the owner.
+**Fix.** `LAB_PUBLISHERS`, next to `PUBLISHERS`, maps labs' domains to the
+labs' display names (the `SOURCE_DISPLAY_NAMES` value where the lab has a
+direct source). `itemOutlet` names an HN link from it, so the copy reads
+"OpenAI (via HN)" and is merged with OpenAI's own. The ranking reads
+`rankingOutlet` instead, where the link is still its bare domain:
+- the strong-source test;
+- the per-outlet cap;
+- the "most widely carried" tiebreak (`Story.breadth`).
+
+So the ranking is unchanged. The Codex review caught the tiebreak: listing
+the lab once had shortened `outlets`, which `rankStories` counted. The owner
+decided on 2026-11-13 to keep lab links naming-only (`DEC-021`): revisit only
+if a lab's own announcement is noticed ranking too low.
+
+**Results & verification.** Previews on `main` and the branch, with
+`--no-repeat-check`, differ only in outlet names:
+- Oct 15's top story went from "Anthropic · anthropic.com (via HN) · The
+  Guardian · Ars Technica · The Verge" to "Anthropic · The Guardian · Ars
+  Technica · The Verge".
+- Oct 19's Also notable line for the alignment.openai.com post reads
+  "OpenAI (via HN)", in the same place.
+- Nov 6, 11 and 13 are identical. Tests cover each domain, listing a lab once (as a row or in
+`coveredBy`), the unchanged strong-source and cap behaviour, and the repeat
+check's names.
 
 ---
 
@@ -117,7 +252,12 @@ the smoke test passed on its first attempt:
   sections.
 
 The token's minimal scopes (Edge Functions read/write, project read) were
-enough. A workflow-side trim is still a cheap hardening option.
+enough.
+
+**Follow-up (PR #13).** The workflow now trims the value itself. Its first
+step, `scripts/project-ref.sh`, strips surrounding whitespace and fails in
+seconds, showing the value, unless what's left is 20 lowercase letters.
+`scripts/project-ref.test.sh` tests it in CI.
 
 ---
 

@@ -12,7 +12,8 @@ and source customisation via config. Debugging stories are in
 
 Phases: scheduling (PRs #5–#6), step 1 collection (PR #7), step 2 the AI
 editor (PR #8), step 3 the digest (PR #9) and its tuning (PR #10), step 4 the
-MCP server (PR #11). Entries for scheduling and step 1 (`DEC-017`, `DEC-018`)
+MCP server (PR #11), then the cleanup after the rebuild (PR #13: `DEC-020`,
+`DEC-021`). Entries for scheduling and step 1 (`DEC-017`, `DEC-018`)
 were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 and
 `reviews/review-2026-10-14-a25a5ce.md`.
 
@@ -112,11 +113,21 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
   other CI systems, but on GitHub it goes stale mid-run.
 - **Key properties:**
   - `id-token: write` only on jobs that call Claude: the editor jobs, the
-    backfill, and since PR #10 the digest job for the repeat check.
-  - The federation rule should pin `repository_owner` and `ref = refs/heads/main`.
-    A subject prefix alone also matches `main-anything`.
-  - **Status:** the owner hasn't completed the wizard (no `ANTHROPIC_FEDERATION_*`
-    variables), so production runs on the `ANTHROPIC_API_KEY` secret.
+    backfill, and since PR #10 the digest job for the repeat check. Since
+    PR #13 the fallback digest's AI summary uses the same client too, so every
+    Claude call in the project goes through `createAnthropicClient`.
+  - The rule matches the token's subject as a **prefix**
+    (`repo:JoonJ14/ai-newsroom:ref:refs/heads/main`), so a branch whose name
+    starts with `main` would match too. It also pins the organization's numeric
+    ID. Only the owner can push branches.
+  - **Status: live since 2026-11-13.** The rule is `ai-newsroom-github-main`
+    (`fdrl_01GjkdTFb4hZy8f84afJqnRn`); its settings are in `docs/editor.md`.
+    The `ANTHROPIC_API_KEY` repository secret is deleted. The key fallback stays
+    in the code for forks and for local runs from `.env`.
+  - With the federation variables set, a failed exchange is an error, not a
+    fall back to the key (TROUBLESHOOTING: "Token exchange failed").
+  - Renaming the GitHub user or the repository breaks the rule until its name
+    fields are edited. The numeric organization ID survives a rename.
 
 ## DEC-005: Stories by `editor_story_key`; the representative item chosen by source, with a guard
 **Date:** 2026-10-17 | **Phase:** step 3
@@ -298,7 +309,10 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
 - **Key properties:**
   - `PUBLISHERS` also decides what counts as strong. Adding a domain changes
     the digest. Forbes is left out because of its contributor posts.
-  - Lab domains aren't in the map yet (an open entry in TROUBLESHOOTING).
+  - Lab domains are in a separate map since PR #13, `LAB_PUBLISHERS`
+    (`DEC-021`). They name the outlet only. By the owner's decision of
+    2026-11-13 they don't count as strong, as the lab for the per-outlet cap,
+    or once for the "widely carried" tiebreak.
 
 ## DEC-013: One copy of the selection code, in `supabase/functions/_shared/newsroom/`
 **Date:** 2026-10-22 | **Phase:** step 4
@@ -520,4 +534,99 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
   the video 5) and the why-line guard.
 - **Revisit** only if explainers or recaps of older events keep reaching Top
   stories.
+
+## DEC-020: Items the editor rated 1–2 are deleted after 14 days; everything else keeps 90
+**Date:** 2026-11-13 | **Phase:** cleanup (PR #13)
+
+- **Decision:** the cleanup after every collect run (`npm run cleanup`,
+  `src/utils/retention.ts`) has a second rule. Rows **judged** at importance 2
+  or lower are deleted 14 days after they were fetched. Unjudged rows, and
+  everything rated 3 or higher, keep the 90-day rule.
+  - Both `npm run cleanup` and the end of `npm run collect` apply it, through
+    `applyRetention` in `src/utils/supabase.ts`, with the same settings.
+  - `collect.yml` sets the variables for the whole collect job, so the two
+    passes can't disagree.
+  - Both numbers are repository variables: `CLEANUP_LOW_IMPORTANCE_MAX`
+    (0–10; 0 switches the rule off) and `CLEANUP_LOW_IMPORTANCE_DAYS` (8–90).
+  - A bad value is reported and the default used.
+- **Context:**
+  - On 2026-11-13 the cache held 11,314 rows. 2,264 of them were rated 1–2,
+    mostly HF Papers, Dev.to, Show HN and arXiv. Show HN alone had 961 rows,
+    324 of them rated 1–2.
+  - The rule's first run deletes 1,348.
+  - Rows rated 1–2 never reach a digest section (the lowest section threshold
+    is 4), and the MCP ranks them after everything else that's judged.
+  - Row data is about 13 MB (estimated from a sample), far under the free
+    tier's 500 MB. So this is about keeping the cache useful, not about space.
+- **Alternatives considered:**
+  - *Collect fewer Show HN items per run.* Rejected: it would also drop the
+    occasional Show HN item the editor rates highly.
+  - *Delete by source.* Rejected: a source's good items would go with its
+    noise.
+  - *Include unjudged rows.* Rejected: an unjudged row isn't known to be minor.
+    All 6,645 unjudged rows were fetched before Oct 10, 2026, ahead of the
+    editor's first backfill. The 90-day rule clears them by early January.
+- **Key properties:**
+  - **Why at least 8 days:** the editor's story-key context and the digest's
+    story history both look back 7 days. A shorter period could delete a row
+    they still read.
+  - **The deletes count rows from the response header.** Returned rows would
+    be capped at PostgREST's 1,000; the first run alone deletes more than that.
+  - **Items without a publish date can come back.** Among enabled sources,
+    only GitHub Trending rows lack a publish date (the disabled HF Spaces rows
+    do too), so the 7-day collection filter keeps them. A repo
+    rated 1–2, deleted at 14 days and still trending, would be collected and
+    judged again as a new row. That's rare and costs a fraction of a cent.
+  - **The MCP's `check_status` still says "Retention: 90 days".** The Edge
+    Function can't see the cleanup's variables, so it doesn't report them.
+
+## DEC-021: Labs' own sites linked from HN are named by the lab, in a separate map
+**Date:** 2026-11-13 | **Phase:** cleanup (PR #13)
+
+- **Decision:** `LAB_PUBLISHERS` (`supabase/functions/_shared/newsroom/source-names.ts`)
+  maps labs' domains to their names. `itemOutlet` uses it to name an HN link:
+  "OpenAI (via HN)", not "openai.com (via HN)". A lab that also carried the
+  story directly is listed once.
+  - **The names are `SOURCE_DISPLAY_NAMES`' where the lab has a direct source.**
+    So `blog.google` is "Google AI", `research.google` is "Google Research", and
+    `about.fb.com` and `ai.meta.com` are "Meta AI". The owner's list said
+    "Google" and "Meta", but those names wouldn't merge with the labs' own
+    copies. A test keeps the names in step.
+  - **The domains:** the owner's list, plus lab domains found via HN in the
+    cache on 2026-11-13: `claude.com`, `nvidia.github.io`, `cohere.com`,
+    `microsoft.ai`, `machinelearning.apple.com`, `aboutamazon.com` and
+    `tencent.com`.
+  - **Considered and left out:** AI companies that aren't labs
+    (`perplexity.ai`, `blog.character.ai`, `cerebras.ai`); `google.com`, which
+    also covers Docs, Support and Maps links; `claude.dev`, whose owner
+    couldn't be confirmed.
+- **Context:** TROUBLESHOOTING, "HN links to a lab's own site show as a bare
+  domain".
+- **Alternatives considered:** *add the domains to `PUBLISHERS`*. Rejected for
+  two reasons:
+  - The repeat check treats `PUBLISHERS`' names as outlet words, never a
+    headline's subject. Lab names there would weaken its link validation
+    (`DEC-011`). A test checks that lab names are still subjects.
+  - `PUBLISHERS` decides strong sources (`DEC-012`) and the per-outlet cap,
+    so the ranking would change. On Oct 19 an HN link to alignment.openai.com
+    (rated 7) would have moved into Top stories.
+- **Key properties:**
+  - **Only how outlets are named and merged changes.** The ranking
+    reads `rankingOutlet`, which still sees a lab's site via HN as its bare
+    domain:
+    - the strong-source test;
+    - the per-outlet cap;
+    - `Story.breadth`, the "most widely carried" tiebreak in `rankStories`.
+    So a lab's post plus an HN link to its site still count as two outlets
+    there, though readers see one. Readers see `itemOutlet`.
+  - The repeat check's prompt lists the same outlet names as the digest, so it
+    shows the lab once too. That's its input text, not its logic.
+  - **Owner decision (2026-11-13): lab links stay naming-only.** An HN link to
+    a lab's own site doesn't count as a strong source, as the lab for the
+    per-outlet cap, or once for the tiebreak. The owner is happy with the
+    current ranking and doesn't want it reshuffled.
+    - **Revisit only if** a lab's own announcement is noticed ranking too low.
+    - **The change would then be:** `rankingOutlet` in `source-names.ts` naming
+      labs too (and `knownPublisher` for strength), plus tests.
+  - **Shared code:** the digest and the MCP change together.
 

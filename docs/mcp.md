@@ -66,8 +66,9 @@ answer in `supabase/functions/mcp/_shared/present.ts`.
   `authors`, `publishedAt`, `fetchedAt`;
 - the editor's judgment: `headline`, `why` (after the guard), `importance`,
   `type`, `audience`, `story_key` and `followup`;
-- `outlets` (every copy, HN links as "Publisher (via HN)"), `published_at`, and
-  `copies` (rows grouped into it).
+- `outlets` (every copy, HN links as "Publisher (via HN)", a lab's own site as
+  "OpenAI (via HN)", and a publisher or lab that also carried it directly
+  listed once), `published_at`, and `copies` (rows grouped into it).
 
 An item not judged yet has the same shape, with the editor fields `null`.
 
@@ -98,6 +99,14 @@ nothing to match.
 - `editor.newestJudgedAt`;
 - `deployment.commit` and `deployment.builtAt`: which commit is live.
 
+Its `retentionDays: 90` (and "Retention: 90 days" in the text) is the general
+rule. Since PR #13, rows the editor rated 1–2 are deleted after 14 days
+(`DEC-020`). The Edge Function can't see the cleanup's settings, so it doesn't
+report that. So for anything fetched more than two weeks ago, the items rated
+1–2 are gone. Items rated 3 or higher stay for 90 days, and so do unjudged
+items: everything fetched before Oct 10, 2026, until the 90-day rule clears it
+in early January. The list tools rank those after the judged ones.
+
 **A behaviour change:** `get_trending` used to return the highest-scored items
 of the whole 90-day cache. Now that it ranks by importance, it looks at the
 last 7 days unless given `since`. Otherwise month-old 9s would top every
@@ -106,14 +115,20 @@ answer.
 ## Deploys: merge equals deploy
 
 `.github/workflows/deploy-mcp.yml` runs on every push to `main` that touches
-`supabase/functions/**`, `supabase/config.toml`, the smoke test or the
-workflow itself. It can also be run by hand from the Actions tab
+`supabase/functions/**`, `supabase/config.toml`, the scripts it runs
+(`scripts/smoke-mcp.sh`, `scripts/install-deno.sh`, `scripts/project-ref.sh`)
+or the workflow itself. It can also be run by hand from the Actions tab
 (`workflow_dispatch`), for the first deploy and for redeploys. **It never runs
 for a pull request or another branch**: the job checks the ref.
 
 Steps:
-1. Check out, install Deno 2.9.8 (`scripts/install-deno.sh`: Deno's own
-   release, SHA-256 checked), and `deno check` the function.
+1. Check out, then **check the project ref** (`scripts/project-ref.sh`): strip
+   surrounding whitespace from the `SUPABASE_PROJECT_REF` variable and fail in
+   seconds, showing the value, unless what's left is 20 lowercase letters.
+   The later steps read the checked value. The first deploy failed on two
+   leading spaces in that variable (TROUBLESHOOTING). Then install Deno 2.9.8
+   (`scripts/install-deno.sh`: Deno's own release, SHA-256 checked), and
+   `deno check` the function.
 2. Stamp the commit: overwrite `supabase/functions/mcp/_shared/build-info.ts`
    with `$GITHUB_SHA` and the time. The committed file says `dev`.
 3. Install Supabase CLI 2.121.0 from npm, into a prefix of its own (the
@@ -122,7 +137,8 @@ Steps:
    Not `denoland/setup-deno` or `supabase/setup-cli`: this repository's
    Actions policy allows GitHub-owned actions only (Settings → Actions →
    General). Allowing those two would let the workflows use them instead.
-4. `supabase functions deploy mcp --project-ref $SUPABASE_PROJECT_REF --no-verify-jwt --use-api`:
+4. `supabase functions deploy mcp --project-ref "$PROJECT_REF" --no-verify-jwt --use-api`,
+   with the value checked in step 1:
    - **`--no-verify-jwt`** keeps the endpoint public. Assistants connect without
      a Supabase JWT, so turning verification on would break every connection.
      `supabase/config.toml` sets `verify_jwt = false` for `mcp` too, so a
@@ -151,6 +167,7 @@ which the logs never print.
 
   The first deploy needed nothing more.
 - **`SUPABASE_PROJECT_REF`** is a repository variable: `jialdowpnekknmxrwrdq`.
+  The workflow trims and checks it first (step 1).
 - **If a deploy fails with a permission error**, the token is minimal by
   design: add only the permission the error names.
 - **The function's own secrets are untouched by a deploy**: `GITHUB_TOKEN` for
@@ -204,3 +221,4 @@ carries the commit too.
 | `supabase/functions/mcp/tools.test.ts` | The news tools against a fake Supabase client (`npm run test:mcp`) |
 | `supabase/functions/mcp/test.ts` | Manual harness: the real handlers against real data, in Node |
 | `.github/workflows/deploy-mcp.yml`, `scripts/smoke-mcp.sh` | Deploy and smoke test |
+| `scripts/project-ref.sh`, `scripts/project-ref.test.sh` | The deploy's check on `SUPABASE_PROJECT_REF`, and its test (in CI) |

@@ -41,18 +41,12 @@ export interface SourceGroup {
   [groupName: string]: string[]; // group name -> array of source IDs
 }
 
-/** Digest priority topic for relevance filtering */
-export interface DigestPriority {
-  label: string;
-  keywords: string[];
-  weight: number;
-}
-
-/** Digest configuration */
+/**
+ * The digest section of sources.yaml: only the delivery adapter
+ * (src/digest/config.ts). The editor digest's layout and thresholds are
+ * environment variables (docs/digest.md).
+ */
 export interface DigestConfig {
-  priorities: DigestPriority[];
-  schedule: string; // cron syntax
-  maxItems: number;
   adapter: 'discord' | 'telegram' | 'slack' | 'imessage';
 }
 

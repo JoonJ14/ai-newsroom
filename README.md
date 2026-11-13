@@ -17,10 +17,15 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 - **The ranking rebuild is complete** (Oct 22, 2026). The engineering record is in [`docs/sessions/2026-10-22-ranking-rebuild-steps-2-4.md`](docs/sessions/2026-10-22-ranking-rebuild-steps-2-4.md), with debugging stories in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) and design decisions in [`docs/DECISIONS.md`](docs/DECISIONS.md). The four steps, each its own PR:
   1. Fix collection: broken and dead sources, title clean-up, cross-source coverage in dedup (done).
   2. An AI editor that judges each item once, at collection time, and stores the judgment (done). Claude Haiku 5.5 reads each item against a written rubric (`config/editor-rubric.md`) and stores its type, importance (1–10), audience, a plain headline, why it matters, and a story key that groups copies and follow-ups. Details: [`docs/editor.md`](docs/editor.md).
-  3. The daily digest built on the judgments (done, now being tuned). Stories instead of items: Top stories, Also notable, For builders and a Paper of note, each with a plain headline, a why-it-matters line and the outlets that carried it, as clickable links. The editor runs just before the digest. If its judgments are missing, the digest falls back to the old ranking and the footer says so. Two Discord layouts, `plain` (default) and `embeds`, chosen with the `DIGEST_LAYOUT` variable. Preview any past morning with `npm run digest -- --preview --date YYYY-MM-DD`. Since the first week's tuning it works like a daily newspaper: a story already shown in the last 7 days isn't shown again unless it develops, and then it is marked "Update:". One small Claude call per morning checks for that. Weak sources can't lead, at most two stories per outlet per section, Hacker News links name the real publisher, and why-lines that describe the coverage instead of the news are replaced. Details: [`docs/digest.md`](docs/digest.md).
+  3. The daily digest built on the judgments (done). Stories instead of items: Top stories, Also notable, For builders and a Paper of note, each with a plain headline, a why-it-matters line and the outlets that carried it, as clickable links. The editor runs just before the digest. If its judgments are missing, the digest falls back to the old ranking and the footer says so. Two Discord layouts, `plain` (default) and `embeds`, chosen with the `DIGEST_LAYOUT` variable. Preview any past morning with `npm run digest -- --preview --date YYYY-MM-DD`. Since the first week's tuning it works like a daily newspaper: a story already shown in the last 7 days isn't shown again unless it develops, and then it is marked "Update:". One small Claude call per morning checks for that. Weak sources can't lead, at most two stories per outlet per section, Hacker News links name the real publisher, and why-lines that describe the coverage instead of the news are replaced. Details: [`docs/digest.md`](docs/digest.md).
   4. The MCP server serves the same judgments with the same story code as the digest (done). `get_top_picks` returns the digest's sections for any window, the other news tools group copies into stories ranked by importance, and every story carries the editor's headline, why-line, importance, type, audience and outlets. New optional filters: `min_importance`, `type`, `audience`. The server now deploys automatically on every merge to `main`, with a smoke test, and `check_status` reports which commit is live. Details: [`docs/mcp.md`](docs/mcp.md).
-- **Pending (owner):** finish the workload identity federation setup for the AI editor, then delete the `ANTHROPIC_API_KEY` repository secret ([`docs/editor.md`](docs/editor.md#setting-up-federation)).
-- **Next:** a cleanup session. The cleanup list, watch items and deferred work are in CLAUDE.md ("Current Direction").
+- **Cleanup after the rebuild (Nov 2026):**
+  - **Workload identity federation is live.** Every GitHub run authenticates to the Claude API with a short-lived token, and the repository holds no Anthropic key ([`docs/editor.md`](docs/editor.md#authentication)).
+  - **Labs by name:** Hacker News links to a lab's own site name the lab ("OpenAI (via HN)"), and a lab that also carried the story directly is listed once.
+  - **Shorter retention for minor items:** items the AI editor rated 1–2 are deleted after 14 days, not 90 ([`docs/DECISIONS.md`](docs/DECISIONS.md), `DEC-020`).
+  - **The fallback digest's summary** runs on the editor's client and model.
+  - **Removed:** the unimplemented SQLite option and digest settings nothing read.
+- **Next:** the remaining cleanup list, watch items and deferred work are in CLAUDE.md ("Current Direction").
 - **Reddit is disabled.** It may return later via Reddit's official API, which needs a registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - **Recent change (Oct 2026):** scheduling moved to **Supabase Cron**. GitHub's own scheduler was delivering the daily digest 3–6 hours late. Supabase now starts the GitHub Actions runs at fixed times, and the digest targets **9:00 AM ET** year-round. The runs themselves still happen on GitHub Actions. Details: [`docs/scheduling.md`](docs/scheduling.md).
 - **Under consideration:** moving collectors and digest entirely into Supabase Edge Functions. We're running the hybrid setup first and will revisit if having two platforms causes trouble. That move has real costs:
@@ -38,7 +43,7 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
 | Asking Claude to search is slow and shallow | Pre-cached in DB, MCP returns instantly |
 | Too many sources to check manually | Aggregated from AI labs, the tech press, HN, ArXiv, GitHub, HuggingFace |
 | Hard to know what's actually important | Relevance scoring + AI filtering separates signal from noise |
-| Miss weekend announcements on Monday | 90-day retention — nothing gets lost |
+| Miss weekend announcements on Monday | 90-day retention for anything the AI editor rates above minor — nothing important gets lost |
 
 ---
 
@@ -374,7 +379,7 @@ These are the tools Claude uses behind the scenes when you ask questions. The ne
 }
 ```
 
-Hacker News links name their publisher: `"Reuters (via HN)"`.
+Hacker News links name their publisher, `"Reuters (via HN)"`, or the lab whose site they link to, `"OpenAI (via HN)"`.
 
 ---
 
@@ -394,20 +399,6 @@ Find the source in the file and change `enabled: true` to `enabled: false`:
   enabled: false  # changed from true — this source will be skipped
 ```
 
-### Change digest priority topics
-
-The `digest.priorities` section controls what topics get highlighted in your daily briefing. Adjust keywords and weights (higher weight = more important):
-```yaml
-digest:
-  priorities:
-    - label: "Anthropic & Claude Code updates"
-      keywords: [anthropic, claude, claude-code, sonnet, opus, haiku, mcp]
-      weight: 10    # highest priority
-    - label: "OpenAI & Codex updates"
-      keywords: [openai, codex, gpt, chatgpt]
-      weight: 9
-```
-
 ### Add a new source
 
 1. Add it to `config/sources.yaml` with the right `type` (`rss`, `reddit`, `json_api`, `github_releases`, `github_trending`, `hackernews_algolia`, or `html_scrape`)
@@ -421,7 +412,7 @@ digest:
 
 Don't want to use the hosted endpoint? Run everything on your own infrastructure.
 
-### With Supabase (recommended)
+### With Supabase
 ```bash
 git clone https://github.com/JoonJ14/ai-newsroom
 cd ai-newsroom
@@ -442,20 +433,6 @@ supabase functions deploy mcp --no-verify-jwt
 ```
 
 The hosted server isn't deployed by hand: `.github/workflows/deploy-mcp.yml` deploys it on every merge to `main` and smoke-tests the live endpoint ([`docs/mcp.md`](docs/mcp.md)). A fork can use the same workflow with its own `SUPABASE_ACCESS_TOKEN` secret and `SUPABASE_PROJECT_REF` variable.
-
-### With SQLite (fully local, no external services)
-```bash
-git clone https://github.com/JoonJ14/ai-newsroom
-cd ai-newsroom
-npm install
-
-# Enable local mode
-echo "NEWSROOM_STORAGE=sqlite" >> .env
-echo "NEWSROOM_DB_PATH=./data/newsroom.db" >> .env
-
-# Collect news
-npm run collect
-```
 
 ---
 
@@ -527,7 +504,7 @@ Most of the day's items had no stored judgment (or the editor columns couldn't b
 You need a `.env` file in the project root with your Supabase credentials. See the Self-Hosting section above.
 
 **"Some sources show 0 items"**
-This is normal. Collection only takes items published in the last 7 days (stored items are kept for 90 days), and some sources publish rarely: Andrej Karpathy's Blog, Sam Altman and Peter Steinberger often go months between posts. A source that errors is logged and skipped; the rest of the run continues.
+This is normal. Collection only takes items published in the last 7 days (stored items are kept for 90 days, or 14 for items the AI editor rated 1–2), and some sources publish rarely: Andrej Karpathy's Blog, Sam Altman and Peter Steinberger often go months between posts. A source that errors is logged and skipped; the rest of the run continues.
 
 **"My client only lists 6 tools, not 8"**
 The tool list comes from the deployed Edge Function, not from this repo. The hosted server redeploys automatically when a change under `supabase/functions/` merges to `main` (`deploy-mcp.yml`); a self-hosted one needs `supabase functions deploy mcp --no-verify-jwt`. `scripts/smoke-mcp.sh` shows what's live, including the deployed commit. Or verify with:

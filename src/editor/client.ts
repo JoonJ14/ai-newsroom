@@ -9,9 +9,12 @@
  *    presents an expired one (GitHub's tokens last about five minutes).
  * 2. Federation from a token file or value (`ANTHROPIC_IDENTITY_TOKEN_FILE`),
  *    resolved by the SDK itself. For other CI systems.
- * 3. `ANTHROPIC_API_KEY`: local runs from `.env`, and the GitHub fallback until
- *    the federation wizard is done.
+ * 3. `ANTHROPIC_API_KEY`: local runs from `.env`, and forks that haven't set
+ *    up federation. This repository's GitHub runs use federation (live since
+ *    Nov 13, 2026) and hold no key. With the federation IDs set, a failed
+ *    exchange is an error, not a fall back to the key.
  *
+ * The digest's repeat check and its fallback summary use this client too.
  * No secret is logged; only the mode is.
  */
 
