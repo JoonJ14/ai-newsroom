@@ -229,13 +229,19 @@ const TITLE_CLASSES = '[class*="__title"], [class*="Title"], [class*="-title"]';
  */
 const MAX_CARD_DEPTH = 8;
 
-/** The card a `<time>` belongs to, and its title element; none if it isn't a single card's date. */
+/**
+ * The card a `<time>` belongs to, and its title element; none if it isn't a
+ * single card's date. The title is never in the date's own line, so a
+ * category label styled as a title (`category-title`) can't stand in for it.
+ */
 function cardOf($: cheerio.CheerioAPI, $time: cheerio.Cheerio<AnyNode>) {
+  const meta = $time.parent()[0];
+  const outsideMeta = (_i: number, el: AnyNode) => !meta || (el !== meta && !$.contains(meta, el));
   let $c = $time.parent();
   for (let depth = 0; depth < MAX_CARD_DEPTH && $c.length && !$c.is('main, body'); depth++, $c = $c.parent()) {
     if ($c.find('time').length > 1) return undefined;
-    const $heading = $c.find(HEADINGS).first();
-    const $title = $heading.length ? $heading : $c.find(TITLE_CLASSES).first();
+    const $heading = $c.find(HEADINGS).filter(outsideMeta).first();
+    const $title = $heading.length ? $heading : $c.find(TITLE_CLASSES).filter(outsideMeta).first();
     if ($title.length) return { $card: $c, $title };
   }
   return undefined;
