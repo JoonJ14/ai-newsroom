@@ -8,6 +8,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Anthropic News scraper fixed — 2026-11-13 (PR #14)
 
+**Branch:** `fix/anthropic-news-scraper` (`42e2b45`…`4e1d31a`) | **PR:** #14, merge
+by the owner. Design: `DEC-022`. The debugging story: `docs/TROUBLESHOOTING.md`.
+
 #### Fixed
 
 - **Anthropic News (`anthropic_blog`) found no posts since about Oct 19.**
@@ -20,9 +23,24 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     title, and takes the link around the title. It never takes the category link
     beside the date, never takes a title from the date's own line, and accepts
     only `http(s)` pages on anthropic.com.
+  - **How** (`src/collectors/scraper.ts`):
+    - `cardOf` walks up from each date, at most `MAX_CARD_DEPTH = 8` levels.
+      Measured on Nov 13, every card is one level above its date's line.
+    - The walk stops at any element holding more than one `<time>`: that's a
+      list, not a card.
+    - The title is the first heading, else a title-class element, outside the
+      date's line. `dateLineOf` decides what that line is (not a link, a
+      heading, or something holding a heading).
+    - The URL is the title's link, else the card's, else its first other link.
+    - The summary is the first non-empty paragraph outside the date line.
+    - The category is the date line's label, else the card's
+      `[class*="category"]`/`[class*="subject"]` element. Bracketed placeholders
+      such as "[TeamName]" are dropped.
   - The old layout still parses.
   - No backfill: the next collect run picks up the last 7 days.
-  - Details: `docs/TROUBLESHOOTING.md`.
+  - **Results:** on the live pages of Nov 13 (read-only), 29 posts on `/news`
+    and 25 on `/research`, against 0 before. Each has a summary, and every
+    `/news` post has a category.
 
 #### Added
 
@@ -30,15 +48,71 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   posts logs a warning naming the source and URL, as a `::warning` annotation on
   Actions (`emptyListingWarning`, its message escaped). It never fails the run. This is the first
   piece of the source health check.
+  The threshold is `MIN_LISTING_CHARS = 1,000`: smaller pages (error stubs,
+  redirects) are too small to judge.
 - Fixtures trimmed from the live pages of Nov 13
-  (`src/collectors/fixtures/anthropic-{news,research}-2026-11-13.html`), with tests.
+  (`src/collectors/fixtures/anthropic-{news,research}-2026-11-13.html`, about
+  26 KB each), with tests. `test:collect` grew from 93 to 114 checks.
+
+#### Review
+
+- **The review pipeline:** six Codex CLI rounds and two post-fix validations,
+  about 980k Codex tokens. Seven WARNs, all fixed and tested:
+  - card URLs were checked by host only;
+  - `/news` list rows lost their category;
+  - a category styled as a title;
+  - a date line that is the card itself;
+  - a date inside the heading;
+  - unescaped annotations;
+  - a test that could not pass.
+- The first local test run then caught a wrong expected name in one assertion.
+  That was fixed and reviewed on its own.
+- GitHub's Codex review: no findings.
+- Summaries: `reviews/review-2026-11-13-87550f4.md` and `-02af2b6.md`.
+
+#### Known limitations and follow-ups
+
+- **The digest's and cleanup's own `annotate` helpers** don't escape `%`, CR or
+  LF, and the collector's ordinary log lines print configured source names as
+  they are. Both are older than this PR, and the names come from the owner's
+  `sources.yaml`.
+- **The warning catches a listing that gives nothing,** not one that loses
+  some of its cards. The rest of the source health check is still on the
+  cleanup list.
 
 ### Cleanup after the rebuild — 2026-11-13 (PR #13)
+
+**Branch:** `chore/cleanup-after-rebuild` | **Merge:** `8711bf5` (a regular merge
+commit, parents `6a91c6d` and `7516830`) | **PR:** #13
 
 A tidy-up after the ranking rebuild. No new features, and no change to the
 ranking, the rubric, thresholds or the repeat check's logic (its prompt lists
 outlets under their new names, as the digest shows them). Design reasoning:
 `DEC-020` and `DEC-021` in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+#### Merged and verified (2026-11-13)
+
+- **The owner's decisions,** recorded before the merge (`7516830`):
+  - lab links stay naming-only;
+  - the Google AI, Google Research and Meta AI names stand;
+  - the grants item stays on the cleanup list;
+  - `ai-newsroom-local` expired on Nov 13, and `ai-newsroom-mac-local` expires
+    around Nov 15.
+- **Deploy MCP server** (run `43488838634`, triggered by the merge): every step
+  passed, including the new "Check the project ref" (`jialdowpnekknmxrwrdq`).
+  The smoke test passed on its first attempt, and `check_status` reported
+  `8711bf5` with 8 tools.
+- **Collect AI News** (run `43489012450`, dispatched by hand): both jobs green.
+  - **The collector's own cleanup pass** deleted 1,355 rows rated 1–2 that were
+    older than 14 days, and 16 past 90 days. The estimate had been 1,348 at
+    17:39 UTC.
+  - **The `npm run cleanup` step** found nothing left to delete.
+  - **The editor** authenticated by federation and judged 10 of 10.
+- **Review:** the pipeline ran four Codex CLI rounds and a post-fix validation
+  (5 WARNs, all fixed), plus an independent docs check (14 agents, 12 doc fixes).
+  GitHub's Codex review: no findings.
+- **Found while verifying:** the Anthropic News scraper had found nothing since
+  about Oct 19, fixed in PR #14.
 
 #### Changed
 

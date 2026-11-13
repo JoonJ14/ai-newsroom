@@ -25,6 +25,8 @@ Ask Claude *"what's new in AI today?"* and get a real answer, not stale training
   - **Shorter retention for minor items:** items the AI editor rated 1–2 are deleted after 14 days, not 90 ([`docs/DECISIONS.md`](docs/DECISIONS.md), `DEC-020`).
   - **The fallback digest's summary** runs on the editor's client and model.
   - **Removed:** the unimplemented SQLite option and digest settings nothing read.
+  - Merged and verified on Nov 13: the first cleanup removed 1,355 minor items and 16 past 90 days.
+- **Anthropic News scraper fixed (Nov 2026, PR #14):** Anthropic redesigned its news pages around Oct 19, and the collector quietly found nothing for four weeks, missing the Claude Fable 5.2 launch among others. The scraper now finds posts from their dates rather than from one page layout, and a news page that loads but yields nothing now raises a warning on the run ([`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)).
 - **Next:** the remaining cleanup list, watch items and deferred work are in CLAUDE.md ("Current Direction").
 - **Reddit is disabled.** It may return later via Reddit's official API, which needs a registered Reddit app and its own credentials. It was a secondary, community-reaction signal.
 - **Recent change (Oct 2026):** scheduling moved to **Supabase Cron**. GitHub's own scheduler was delivering the daily digest 3–6 hours late. Supabase now starts the GitHub Actions runs at fixed times, and the digest targets **9:00 AM ET** year-round. The runs themselves still happen on GitHub Actions. Details: [`docs/scheduling.md`](docs/scheduling.md).

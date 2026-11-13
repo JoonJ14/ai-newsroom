@@ -57,8 +57,9 @@ Sources are defined in `config/sources.yaml`. Each source has:
      2026-10-22 (`1f0d295`), smoke test green.
   - **Engineering record:** `docs/sessions/2026-10-22-ranking-rebuild-steps-2-4.md`,
     `docs/TROUBLESHOOTING.md` (debugging stories) and `docs/DECISIONS.md`
-    (`DEC-001`–`DEC-021`; read before changing scheduling, collection, the editor, the
-    digest, the repeat check, the shared code, retention or deploys).
+    (`DEC-001`–`DEC-022`; read before changing scheduling, collection, the scrapers, the
+    editor, the digest, the repeat check, the shared code, retention or deploys).
+    Review summaries for each PR are in `reviews/`.
 - **Workload identity federation is live (Nov 13, 2026).**
   - Every GitHub run authenticates through rule `ai-newsroom-github-main`
     (`fdrl_01GjkdTFb4hZy8f84afJqnRn`): Branch/ref `refs/heads/main` (**the full
@@ -70,13 +71,31 @@ Sources are defined in `config/sources.yaml`. Each source has:
     fields are edited.
   - Settings and diagnosis: `docs/editor.md` ("Authentication"), TROUBLESHOOTING
     ("Token exchange failed").
-- **Cleanup after the rebuild: done (PR #13).** Lab names for HN links (naming only,
-  `DEC-021`), the deploy's project-ref check, the fallback summary on the editor's
-  client, the SQLite and unused digest settings removed, and 14-day retention for items
-  rated 1–2 (`DEC-020`).
+- **Cleanup after the rebuild: done (PR #13, merged as `8711bf5` on 2026-11-13).**
+  - **What it did:**
+    - lab names for HN links (naming only, `DEC-021`);
+    - the deploy's project-ref check;
+    - the fallback summary on the editor's client;
+    - the SQLite and unused digest settings removed;
+    - 14-day retention for items rated 1–2 (`DEC-020`).
+  - **Verified after the merge:**
+    - the deploy went green and `check_status` reported `8711bf5`;
+    - the first cleanup deleted 1,355 rows rated 1–2 and 16 past 90 days
+      (the cache: 11,314 rows before, 9,958 later that day);
+    - the editor judged 10 of 10 by federation.
+- **Anthropic News scraper fix (PR #14, open on 2026-11-13; the owner merges).**
+  - **The problem:** Anthropic changed the markup of `/news` and `/research` around
+    Oct 19, and the scraper found nothing for four weeks.
+  - **The fix:** it now finds posts from their `<time>` (`DEC-022`), and a listing
+    that loads but gives nothing raises a `::warning` annotation.
+  - **After the merge:** check that the next collect run logs
+    `Collected N items from Anthropic News` with N > 0, and that the 9:00 digest can
+    show Anthropic's own posts again. That run brings up to a week of posts; the
+    repeat check should drop stories already shown through the press.
 - **Owner steps and decisions:**
   - Optional: the disabled-sources SQL in TROUBLESHOOTING ("Old rows from disabled
-    sources"). Preview first.
+    sources"): 101 rows now (HF Spaces 97, VentureBeat 4). Preview first, in a
+    separate run.
   - Decided 2026-11-13: HN links to a lab's own site stay **naming-only** (`DEC-021`).
     They aren't strong sources, the lab for the per-outlet cap, or one outlet for the
     tiebreak. Revisit only if a lab's own announcement is noticed ranking too low.
