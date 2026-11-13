@@ -16,6 +16,9 @@ import type { NewsItem, SourceConfig } from './types.js';
 
 const log = createLogger('scraper');
 
+/** A parsed DOM node, as cheerio's own functions take it (domhandler isn't a direct dependency). */
+type AnyNode = Parameters<typeof cheerio.contains>[1];
+
 interface SiteScraper {
   /** Parse one listing page into items. */
   parse: (html: string, source: SourceConfig, pageUrl: string) => NewsItem[];
@@ -34,6 +37,37 @@ const SCRAPERS: Record<string, SiteScraper> = {
 
 const ENRICH_CONCURRENCY = 4;
 
+/** A page shorter than this is too small to judge: an error stub or a redirect page. */
+const MIN_LISTING_CHARS = 1_000;
+
+/**
+ * The warning for a listing page that loaded but gave no posts, which almost
+ * always means its layout changed. Anthropic's did around 2026-10-19, and the
+ * scraper found nothing for four weeks without a word
+ * (docs/TROUBLESHOOTING.md). None when the page gave posts or is too small
+ * to judge.
+ */
+export function emptyListingWarning(sourceName: string, pageUrl: string, html: string, found: number): string | undefined {
+  if (found > 0 || html.length < MIN_LISTING_CHARS) return undefined;
+  return `${sourceName}: ${pageUrl} loaded (${html.length} characters) but no posts were found on it. ` +
+    'The page layout may have changed; check its scraper in src/collectors/scraper.ts.';
+}
+
+/**
+ * A workflow command's message, escaped as GitHub requires: a `%`, CR or LF
+ * in it (a source name, a URL) can't end the annotation and start another
+ * command.
+ */
+export function escapeAnnotation(message: string): string {
+  return message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+/** A GitHub Actions annotation when running there, a plain warning otherwise. Never fails the run. */
+function annotate(message: string) {
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Scraper::${escapeAnnotation(message)}`);
+  else log.warn(message);
+}
+
 export async function collectHTMLScrape(source: SourceConfig): Promise<NewsItem[]> {
   const scraper = SCRAPERS[source.id];
   if (!scraper) {
@@ -50,7 +84,10 @@ export async function collectHTMLScrape(source: SourceConfig): Promise<NewsItem[
     try {
       const html = await fetchText(pageUrl, { headers: { Accept: 'text/html' }, timeoutMs: 30_000 });
       pagesOk++;
-      for (const item of scraper.parse(html, source, pageUrl)) {
+      const parsed = scraper.parse(html, source, pageUrl);
+      const warning = emptyListingWarning(source.name, pageUrl, html, parsed.length);
+      if (warning) annotate(warning);
+      for (const item of parsed) {
         const seen = byUrl.get(item.url);
         if (!seen) byUrl.set(item.url, item);
         else if (!seen.summary && item.summary) seen.summary = item.summary;
@@ -100,15 +137,28 @@ export async function enrichRecent(items: NewsItem[], enrich: (item: NewsItem) =
 /**
  * Scrape Anthropic's /news or /research page.
  *
- * Both pages share one layout: a featured card (h2 title), side cards (h4
- * title plus a summary) and a dated list (title in a `…__title` span). The
- * side cards carry model and product launches at top-level paths such as
- * /claude-haiku-5-5, so every dated card that links into anthropic.com is
- * collected, not only /news/ links.
+ * A post is a card with a date (`<time>`, "Nov 9, 2026"), a title and a link.
+ * The markup has changed under us before, so cards are found from their
+ * dates rather than from one expected shape:
  *
- * Cards without a <time> are skipped: navigation and team links, and undated
- * features, which would look brand new on every run. The featured card
- * repeats an item from the list; the copies merge by URL.
+ * - **Since about 2026-10-19:** each card is an `<article>`. Its `<header>`
+ *   holds a category link ("Announcements") and the `<time>`. The title is
+ *   in a separate link wrapping the heading, and the image has a link of its
+ *   own. No link contains the date.
+ * - **Before:** each card was one `<a>` wrapping the date, the title (a
+ *   heading, or a `…__title` span in the dated list) and the summary.
+ *
+ * From each `<time>`, walk up to the nearest element that also holds a title.
+ * Give up if that element holds more than one date, which makes it a list of
+ * cards rather than one card. The URL is the link wrapping the title (or the
+ * card's own link, or failing those its first other link), never the category
+ * link beside the date.
+ *
+ * Model and product launches sit at top-level paths such as
+ * /claude-fable-and-mythos-5-2, so any dated card linking into anthropic.com
+ * is collected, not only /news/ links. Undated cards (navigation, team links,
+ * undated features) are skipped: they would look brand new on every run. The
+ * featured card repeats an item from the list; the copies merge by URL.
  */
 export function scrapeAnthropicListing(html: string, source: SourceConfig, pageUrl: string): NewsItem[] {
   const $ = cheerio.load(html);
@@ -116,27 +166,45 @@ export function scrapeAnthropicListing(html: string, source: SourceConfig, pageU
   const byUrl = new Map<string, NewsItem>();
   const root = $('main').length ? $('main') : $('body');
 
-  root.find('a[href]').each((_i, el) => {
-    const $el = $(el);
-    const publishedAt = parseDayDate($el.find('time').first().text());
+  root.find('time').each((_i, timeEl) => {
+    const $time = $(timeEl);
+    const publishedAt = parseDayDate($time.text());
     if (!publishedAt) return;
 
+    const card = cardOf($, $time);
+    if (!card) return;
+    const { $card, $title } = card;
+    // The date's own line: category label(s) and the date. Never the title, URL or summary.
+    const meta = dateLineOf($, $time);
+    const outsideMeta = (el: AnyNode) => !meta || (el !== meta && !$.contains(meta, el));
+
+    const href =
+      $title.closest('a[href]').attr('href') ??
+      $card.closest('a[href]').attr('href') ??
+      $card.find('a[href]').filter((_j, a) => outsideMeta(a)).first().attr('href');
+    if (!href) return;
     let url: URL;
     try {
-      url = new URL($el.attr('href')!, pageUrl);
+      url = new URL(href, pageUrl);
     } catch {
       return;
     }
-    if (!/(^|\.)anthropic\.com$/.test(url.hostname)) return;
+    // A web page on anthropic.com: not javascript:, data: or the like, whatever its host
+    if (!/^https?:$/.test(url.protocol) || !/(^|\.)anthropic\.com$/.test(url.hostname)) return;
 
-    const title = collapseText(
-      $el.find('h1, h2, h3, h4, h5, h6').first().text() ||
-        $el.find('[class*="__title"]').first().text(),
-    );
+    const title = collapseText($title.text());
     if (!title) return;
 
-    const summary = collapseText($el.find('p').first().text()) || undefined;
-    const category = collapseText($el.find('[class*="__meta"] span').first().text()) || undefined;
+    const summary =
+      collapseText($card.find('p').filter((_j, el) => outsideMeta(el) && collapseText($(el).text()) !== '').first().text()) ||
+      undefined;
+    // The category: a label in the date's line, or the card's own category element
+    // (the /news list keeps it beside the date, in `…_category`)
+    const labelIn = ($scope: cheerio.Cheerio<AnyNode>, selector: string) =>
+      collapseText($scope.find(selector).filter((_j, el) => !$(el).is('time') && collapseText($(el).text()) !== '').first().text());
+    const label = (meta ? labelIn($(meta), 'a, span') : '') || labelIn($card, '[class*="category"], [class*="subject"]');
+    // Skips the site's own unfilled template placeholders, such as "[TeamName]"
+    const category = label && !/^\[.*\]$/.test(label) ? label : undefined;
 
     const seen = byUrl.get(url.href);
     if (seen) {
@@ -159,6 +227,48 @@ export function scrapeAnthropicListing(html: string, source: SourceConfig, pageU
   });
 
   return [...byUrl.values()];
+}
+
+const HEADINGS = 'h1, h2, h3, h4, h5, h6';
+/** Titles that aren't headings: the old dated list's `…__title` spans, and the like. */
+const TITLE_CLASSES = '[class*="__title"], [class*="Title"], [class*="-title"]';
+/**
+ * How far above a date its card can start. On the Nov 13 pages every card
+ * starts one level above the date's line; in the old layout, two.
+ */
+const MAX_CARD_DEPTH = 8;
+
+/**
+ * The date's own line: the element around the `<time>` that holds its
+ * category label(s), as a card's `<header>` does. None when that element is
+ * the card or its title: a link, a heading or title, or one holding a heading
+ * (an old card could be `<a><time/><h4/></a>`, its date and title side by
+ * side, or put the date inside the heading).
+ */
+function dateLineOf($: cheerio.CheerioAPI, $time: cheerio.Cheerio<AnyNode>): AnyNode | undefined {
+  const $parent = $time.parent();
+  if (!$parent.length || $parent.is(`a, main, body, ${HEADINGS}, ${TITLE_CLASSES}`) || $parent.find(HEADINGS).length) {
+    return undefined;
+  }
+  return $parent[0];
+}
+
+/**
+ * The card a `<time>` belongs to, and its title element; none if it isn't a
+ * single card's date. The title is never in the date's own line, so a
+ * category label styled as a title (`category-title`) can't stand in for it.
+ */
+function cardOf($: cheerio.CheerioAPI, $time: cheerio.Cheerio<AnyNode>) {
+  const meta = dateLineOf($, $time);
+  const outsideMeta = (_i: number, el: AnyNode) => !meta || (el !== meta && !$.contains(meta, el));
+  let $c = $time.parent();
+  for (let depth = 0; depth < MAX_CARD_DEPTH && $c.length && !$c.is('main, body'); depth++, $c = $c.parent()) {
+    if ($c.find('time').length > 1) return undefined;
+    const $heading = $c.find(HEADINGS).filter(outsideMeta).first();
+    const $title = $heading.length ? $heading : $c.find(TITLE_CLASSES).filter(outsideMeta).first();
+    if ($title.length) return { $card: $c, $title };
+  }
+  return undefined;
 }
 
 /** The site-wide fallback some article pages carry instead of their own description. */

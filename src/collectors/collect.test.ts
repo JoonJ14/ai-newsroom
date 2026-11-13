@@ -8,12 +8,14 @@
  * Usage: npm run test:collect
  */
 
+import { readFileSync } from 'node:fs';
 import { cleanText, decodeEntities, htmlToText, normalizeItem, stripTrackingParams } from '../utils/normalize.js';
 import { coverageOf, deduplicateItems, urlKey } from '../utils/dedup.js';
 import { mergeStoredMetadata, postgrestInList } from '../utils/supabase.js';
 import { withHitsPerPage } from './hackernews.js';
 import {
-  enrichRecent, parseDayDate, readAnthropicArticle, scrapeAnthropicChangelog, scrapeAnthropicListing,
+  collectHTMLScrape, emptyListingWarning, enrichRecent, escapeAnnotation, parseDayDate, readAnthropicArticle, scrapeAnthropicChangelog,
+  scrapeAnthropicListing,
 } from './scraper.js';
 import { readBody } from '../utils/http.js';
 import {
@@ -337,6 +339,125 @@ section('scrapeAnthropicListing — the /news layout');
   ]);
   check('model launch dated and summarized', [items[1].publishedAt, items[1].summary], ['2026-10-07T00:00:00.000Z', 'Our fastest small model yet.']);
   check('category kept', items[2].metadata, { category: 'Announcements' });
+}
+
+section('scrapeAnthropicListing — the layout since about Oct 19, 2026 (fixtures from Nov 13)');
+{
+  // Trimmed from the live pages: each card's link wraps only its image or title, and the
+  // <time> sits outside it, beside a category link. The old parser found no posts at all.
+  const newsHtml = readFileSync(new URL('./fixtures/anthropic-news-2026-11-13.html', import.meta.url), 'utf8');
+  const researchHtml = readFileSync(new URL('./fixtures/anthropic-research-2026-11-13.html', import.meta.url), 'utf8');
+  const news = scrapeAnthropicListing(newsHtml, SOURCE, 'https://www.anthropic.com/news');
+  const research = scrapeAnthropicListing(researchHtml, SOURCE, 'https://www.anthropic.com/research');
+  const brief = (items: NewsItem[]) => items.map((i) => `${i.publishedAt!.slice(0, 10)} ${i.url.replace('https://www.anthropic.com', '')} ${i.title}`);
+  check('/news: every dated card, in page order, at its article URL', brief(news), [
+    '2026-11-09 /claude-fable-and-mythos-5-2 Introducing Claude Fable 5.2 and Claude Mythos 5.2',
+    '2026-10-18 /news/public-benefit-fund Investing in the public benefit',
+    '2026-10-26 /news/s1-sec Anthropic files S-1 with the SEC for proposed initial public offering',
+    '2026-10-27 /research/early-progress-drug-development Early progress on accelerating drug development with Claude',
+    '2026-10-07 /claude-haiku-5-5 Introducing Claude Haiku 5.5',
+    '2026-09-22 /claude-opus-5-5 Introducing Claude Opus 5.5',
+    '2026-09-21 /features/ebola-response The Situation Report',
+    '2026-11-10 /news/roadshow-launch Anthropic launches roadshow for proposed initial public offering',
+    '2026-10-28 /news/ai-for-science-expands-foundations-research-institutions AI for Science expands to foundations and research institutions',
+    '2026-10-27 /news/expanding-partnership-gsa Expanding our partnership with GSA to bring Claude to all levels of government',
+    '2026-10-01 /news/barclays-scales-claude Barclays scales Claude to upgrade operations and improve client experience',
+  ]);
+  const fable = news[0];
+  check('the model launch (the featured card): a top-level page, its summary, its category',
+    [fable.summary?.startsWith('Our most capable models for daunting technical work'), fable.metadata], [true, { category: 'Announcements' }]);
+  check('the featured card and its row in the list merge into one item',
+    [(newsHtml.match(/href="\/claude-fable-and-mythos-5-2"/g) ?? []).length > 1, news.filter((i) => i.url.endsWith('/claude-fable-and-mythos-5-2')).length], [true, 1]);
+  check('never the category link beside the date', [...news, ...research].filter((i) => /\/news\/(announcements|features)$/.test(i.url)), []);
+  check('every card has a summary', [...news, ...research].filter((i) => !i.summary).map((i) => i.url), []);
+  const nov13 = research.find((i) => i.url === 'https://www.anthropic.com/research/building-strong-safety-evaluations');
+  check('/research: the Nov 13 post, titled, dated, with its category', [nov13?.title, nov13?.publishedAt, nov13?.metadata],
+    ['Building strong safety evaluations', '2026-11-13T00:00:00.000Z', { category: 'Engineering' }]);
+  check('/research: 8 dated cards', research.length, 8);
+  const enzyme = research.find((i) => i.url.endsWith('/claude-discovers-novel-enzyme-system'));
+  check('the site\'s unfilled "[TeamName]" placeholder is not kept as a category',
+    [enzyme !== undefined, researchHtml.includes('[TeamName]'), enzyme?.metadata?.category ?? 'none'], [true, true, 'none']);
+  check('the /news list keeps its category beside the date, not in the date\'s line', [
+    news.find((i) => i.url.endsWith('/news/roadshow-launch'))?.metadata?.category,
+    news.find((i) => i.url.endsWith('/news/expanding-partnership-gsa'))?.metadata?.category,
+  ], ['Announcements', 'Partnerships']);
+  check('every /news card has its category', news.filter((i) => !i.metadata?.category).map((i) => i.url), []);
+  check('no warning for a page that gave posts', typeof emptyListingWarning('Anthropic News', 'u', newsHtml, news.length), 'undefined');
+  const schemes = scrapeAnthropicListing(`<main>
+    <article><header><time>Nov 9, 2026</time></header><a href="javascript://anthropic.com/%0aalert(1)"><h3>Injected</h3></a></article>
+    <article><header><time>Nov 9, 2026</time></header><a href="data:text/html,anthropic.com"><h3>Data</h3></a></article>
+    <article><header><time>Nov 9, 2026</time></header><a href="http://www.anthropic.com/news/plain-http"><h3>Plain http</h3></a></article>
+  </main>`, SOURCE, 'https://www.anthropic.com/news');
+  const styled = scrapeAnthropicListing(`<main><article>
+    <header><a class="category-title" href="/news/announcements">Announcements</a><time>Nov 10, 2026</time></header>
+    <a href="/news/roadshow-launch"><h3 class="card-title">Anthropic launches roadshow</h3></a>
+  </article></main>`, SOURCE, 'https://www.anthropic.com/news');
+  check('a category styled as a title, in the date\'s line, is never taken for the title or the URL',
+    styled.map((i) => `${i.title} ${i.url}`), ['Anthropic launches roadshow https://www.anthropic.com/news/roadshow-launch']);
+  const direct = scrapeAnthropicListing(`<main>
+    <a href="/news/side-by-side"><time>Oct 9, 2026</time><h4>Date and title side by side</h4><p>Its summary.</p></a>
+    <div><time>Oct 8, 2026</time><h4>Not in a link, title beside the date</h4><a href="/news/beside">Read more</a></div>
+    <a href="/news/date-in-heading"><h3><time>Oct 7, 2026</time> Date inside the heading</h3></a>
+  </main>`, SOURCE, 'https://www.anthropic.com/news');
+  check('a date and title side by side in one element (the card itself), or the date inside the heading, still parse',
+    direct.map((i) => `${i.url.replace('https://www.anthropic.com', '')} ${i.title} ${i.summary ?? '-'}`), [
+      '/news/side-by-side Date and title side by side Its summary.', '/news/beside Not in a link, title beside the date -',
+      '/news/date-in-heading Oct 7, 2026 Date inside the heading -',
+    ]);
+  check('only web pages on anthropic.com: javascript: and data: links are skipped, whatever their host',
+    schemes.map((i) => i.url), ['http://www.anthropic.com/news/plain-http']);
+}
+
+section('a listing page that loads but gives no posts — a loud warning, never a failure');
+{
+  const big = `<html><body><main>${'<div><span>Nov 9, 2026</span><h3>A post in some future layout</h3></div>'.repeat(40)}</main></body></html>`;
+  check('no <time> anywhere: no posts', scrapeAnthropicListing(big, SOURCE, 'https://www.anthropic.com/news').length, 0);
+  check('the warning names the source, the URL and where to look',
+    emptyListingWarning('Anthropic News', 'https://www.anthropic.com/news', big, 0),
+    `Anthropic News: https://www.anthropic.com/news loaded (${big.length} characters) but no posts were found on it. ` +
+      'The page layout may have changed; check its scraper in src/collectors/scraper.ts.');
+  check('the size boundary: 999 characters is too small to judge, 1,000 is not',
+    [typeof emptyListingWarning('S', 'u', 'x'.repeat(999), 0), typeof emptyListingWarning('S', 'u', 'x'.repeat(1000), 0)], ['undefined', 'string']);
+  check('posts found, or a page too small to judge: no warning',
+    [typeof emptyListingWarning('S', 'u', big, 3), typeof emptyListingWarning('S', 'u', '<html></html>', 0)], ['undefined', 'undefined']);
+
+  // The whole path, as on Actions: both pages load, neither gives posts
+  const realFetch = globalThis.fetch;
+  const realLog = console.log;
+  const hadActions = process.env.GITHUB_ACTIONS;
+  const printed: string[] = [];
+  globalThis.fetch = (async () => new Response(big, { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+  console.log = (...args: unknown[]) => { printed.push(args.map(String).join(' ')); };
+  process.env.GITHUB_ACTIONS = 'true';
+  let items: NewsItem[] | undefined;
+  let threw = false;
+  try {
+    items = await collectHTMLScrape({
+      ...SOURCE, url: 'https://www.anthropic.com/news', extraUrls: ['https://www.anthropic.com/research'],
+    } as SourceConfig);
+    // A name with a newline must not start a second workflow command
+    await collectHTMLScrape({ ...SOURCE, name: 'Bad\n::error::injected 100%', url: 'https://www.anthropic.com/news' } as SourceConfig);
+  } catch {
+    threw = true;
+  } finally {
+    globalThis.fetch = realFetch;
+    console.log = realLog;
+    if (hadActions === undefined) delete process.env.GITHUB_ACTIONS;
+    else process.env.GITHUB_ACTIONS = hadActions;
+  }
+  const annotations = printed.filter((l) => l.startsWith('::warning title=Scraper::'));
+  // The annotation's own message is escaped; ordinary log lines print the configured name as it is
+  const injected = annotations.filter((l) => l.includes('injected'));
+  check('a %, CR or LF in the annotation is escaped: one line, so no second command', [
+    injected.length, injected.every((l) => !/[\r\n]/.test(l)),
+    injected[0]?.includes('Bad%0A::error::injected 100%25: https://www.anthropic.com/news loaded'),
+  ], [1, true, true]);
+  check('escapeAnnotation', escapeAnnotation('a%b\r\nc'), 'a%25b%0D%0Ac');
+  check('on Actions: one ::warning annotation per page, naming it; the run goes on with no items', [
+    threw, items?.length, annotations.filter((l) => l.includes(`::${SOURCE.name}: `)).length,
+    annotations.some((l) => l.includes(`::${SOURCE.name}: https://www.anthropic.com/news loaded`)),
+    annotations.some((l) => l.includes(`::${SOURCE.name}: https://www.anthropic.com/research loaded`)),
+  ], [false, 0, 2, true, true]);
 }
 
 section('scrapeAnthropicChangelog — one item per bullet');

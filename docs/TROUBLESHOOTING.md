@@ -8,11 +8,143 @@ README's Troubleshooting section.
 
 Phases: scheduling (PRs #5–#6), then the ranking rebuild: step 1 collection
 (PR #7), step 2 the AI editor (PR #8), step 3 the digest (PR #9) and its tuning
-(PR #10), step 4 the MCP server (PR #11). Then the federation setup and the
-cleanup after the rebuild (Nov 2026, PR #13). The scheduling and step-1 entries at
+(PR #10), step 4 the MCP server (PR #11). Then the federation setup, the
+cleanup after the rebuild (Nov 2026, PR #13) and the Anthropic News scraper
+fix (PR #14). The scheduling and step-1 entries at
 the end were written afterwards, from PRs #5–#7, `docs/scheduling.md`,
 migration 003 and `reviews/review-2026-10-14-a25a5ce.md`. The full session record for steps 2–4 is
 [`sessions/2026-10-22-ranking-rebuild-steps-2-4.md`](sessions/2026-10-22-ranking-rebuild-steps-2-4.md).
+
+---
+
+## RESOLVED (verify after merge) — Anthropic News collected nothing for four weeks (a layout change)
+**Phase:** after the cleanup (PR #14) | **Severity:** High | **Status:** Fixed in PR #14; confirmed once the first collect run after the merge logs Anthropic News items
+**Date fixed:** 2026-11-13
+
+**Symptom.** Every collect run logged
+`Collected 0 items from Anthropic News (0 filtered by date)`.
+- **Since when:** the newest stored `anthropic_blog` row was fetched on Oct 18,
+  so the scraper had found nothing since about Oct 18–19.
+- **Missed posts** included:
+  - Nov 9: "Introducing Claude Fable 5.2 and Claude Mythos 5.2";
+  - Nov 10: "Anthropic launches roadshow for proposed initial public offering";
+  - Nov 13: "Building strong safety evaluations".
+- **Found while** checking PR #13's collect run, not by any alarm. The run
+  stayed green, and the digest still had Anthropic stories through the press
+  and HN, just never Anthropic's own post.
+
+**Diagnosis / root cause.**
+- **First, broken or just quiet?** The first claim rested on eight collect runs
+  going back one day, all with 0 items. The owner pointed out that a day of
+  zeros proves nothing: Anthropic might simply not have posted. Three things
+  did prove it:
+  - what the log line means (next point);
+  - the newest stored row being from Oct 18, while HN had linked anthropic.com
+    posts since then (Nov 6);
+  - running the parser on the live pages (below).
+- **The log line is the clue.** In `collectHTMLScrape`, "filtered by date" is
+  the number of posts parsed minus those recent enough to keep. A quiet week
+  reads like "0 items (20 filtered by date)". "0 (0 filtered)" means the parser
+  found no posts at all.
+- **The pages were fine.** `/news` and `/research` both answered HTTP 200 with
+  about 340 KB, and running the collector's own parser on them found nothing.
+- **The markup had changed.** The parser expected each post to be one `<a>`
+  wrapping its `<time>`, title and summary. Now each card is an `<article>`:
+  - its `<header>` holds a category link ("Announcements") and the `<time>`;
+  - the image has a link of its own;
+  - the title sits in another link.
+
+  The pages had 35 and 29 `<time>` elements, and no link contained one.
+- **The changelog scraper** (`platform.claude.com`) parses a different page and
+  kept working.
+- **Why nobody noticed for four weeks.** The collector logs a scraper's count at
+  INFO level, and zero is also what a quiet source logs. Nothing compared a
+  page's size with what it gave, and the run stayed green. Meanwhile the digest
+  still had Anthropic stories, carried by the press and HN.
+
+**Solutions considered.**
+- *Point the parser at the new class names* (`W1FydW_tileLink`,
+  `bxgyUW_title-link`). It would have worked that day. Rejected: those are
+  generated CSS-module names (the `W1FydW_` prefix is a build hash), so the
+  next redesign, or even a rebuild of the site, breaks it again just as
+  quietly.
+- *Keep starting from links, and look for a date near each one.* That's the old
+  approach adapted. Rejected after trying it in a quick script: a card now has
+  three links (category, image, title), and the category link sits right next
+  to the date. The first heuristic of this session returned "Introducing
+  Claude Fable 5.2" at `/news/announcements`, the category page.
+- *Start from the dates* (chosen). `<time>` is semantic markup, not styling;
+  every dated card has one (the scraper already skipped undated cards); and
+  both the old and the new layout use it. From the date, the parser walks up to
+  the card and picks the link around the title. Measured on the Nov 13 pages:
+  every one of the 64 dates finds its card one level above its own line.
+- *For the alarm, fail the collect run when a listing gives nothing.* Rejected:
+  one site's redesign would then fail the run that collects the other 29
+  sources and feeds the editor. A warning that shows on the run page (a
+  `::warning` annotation) is loud enough, and the run goes on.
+- *A general source health check* (counts compared with each source's history,
+  sources quiet for too long). It's still on the cleanup list; this fix adds
+  only its first piece, the empty-listing warning.
+
+**Fix** (`src/collectors/scraper.ts`):
+- **Find cards from their dates.** For each `<time>`, walk up to the nearest
+  element that also holds a title (a heading, or a title-class span). Give up
+  if that element holds more than one date, because it's a list of cards then,
+  not one card.
+- **The title is never in the date's own line.** That line is the date's parent
+  when that parent is neither a link nor holds a heading itself; otherwise the
+  parent is the card (an old card could be `<a><time/><h4/></a>`). So a
+  category styled as a title can't stand in for it.
+- **The URL** comes from the link wrapping the title, else the card's own link,
+  else its first other link. It's never the category link beside the date, and
+  it must be an `http(s)` page on anthropic.com (a `javascript://anthropic.com/…`
+  link has that host too; Codex caught it).
+- **The summary** is the card's first paragraph outside the date line.
+- **The category** is the date line's label, or else the card's own category
+  element: the `/news` list keeps it beside the date. The site's unfilled
+  "[TeamName]" placeholder is skipped.
+- **The old one-link layout** still parses the same way (its test is unchanged).
+- **A loud warning.** A scraped listing page that loads (1,000+ characters) but
+  gives no posts now logs a warning naming the source and URL: a `::warning`
+  annotation on Actions (`emptyListingWarning`), its message escaped as GitHub
+  requires (`escapeAnnotation`). It doesn't fail the run. This is the first
+  piece of the cleanup list's source health check.
+- **Review:** six Codex rounds and two post-fix validations. Seven findings,
+  all fixed and tested:
+  - `http(s)` links only;
+  - the `/news` list's category;
+  - the title never taken from the date line;
+  - a date line that is really the card (`<a><time/><h4/></a>`);
+  - a date inside the heading;
+  - the escaping;
+  - a test that could not have passed.
+
+**Results & verification.**
+- **The live pages, read-only, on Nov 13:** 29 posts on `/news` and 25 on
+  `/research`, including the three above, at their article URLs (the model
+  launch at `/claude-fable-and-mythos-5-2`), each with a summary.
+- **Tests:** trimmed fixtures of both pages are in `src/collectors/fixtures/`
+  (a model launch, the featured card and its list row merging, research posts,
+  the placeholder). Plus the warning, through `collectHTMLScrape` with a
+  stubbed fetch.
+- **No backfill.** The next collect run picks up whatever the 7-day filter
+  allows. Older missed posts stay missed: their digest mornings are past, and
+  the press covered them.
+- **CI and review:** PR #14's CI passed (the collector suite 114 of 114).
+  GitHub's Codex review reported no findings on `4e1d31a`.
+- **Still to confirm (owner):** the first collect run after the merge logs
+  `Collected N items from Anthropic News` with N > 0, and the following 9:00
+  digest can show Anthropic's own posts.
+  - That run brings up to a week of posts at once.
+  - Stories the digest already showed through the press should be left out by
+    the 7-day repeat check.
+  - Posts never shown may appear as new.
+- **Pitfalls the review found,** worth keeping in mind for the next layout:
+  - a date's parent isn't always "the date line": in an old card it was the
+    card itself, or the heading;
+  - a host check alone lets `javascript://anthropic.com/…` through;
+  - a broad title selector can match a category label;
+  - GitHub workflow commands need `%`, CR and LF escaped.
 
 ---
 
@@ -67,9 +199,10 @@ where source in ('venturebeat_ai', 'xai_blog', 'reddit_claudeai', 'reddit_locall
 returning source;
 ```
 
-It lists one row per deleted item. The count should match the preview's total
-(111 on 2026-11-13, fewer after the 14-day rule's first run), and a second run
-of the preview should return nothing. Nothing else refers to these rows:
+It lists one row per deleted item. The count should match the preview's total.
+That was 111 on 2026-11-13 before the first cleanup under PR #13. That run took
+10 HF Spaces rows: the 9 rated 1–2, and one past 90 days. It was 101 after it (HF
+Spaces 97, VentureBeat 4). A second run of the preview should return nothing. Nothing else refers to these rows:
 `digest_state.story_history` keeps keys and headlines, not row ids.
 
 ---

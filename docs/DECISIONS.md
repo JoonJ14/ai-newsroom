@@ -13,7 +13,7 @@ and source customisation via config. Debugging stories are in
 Phases: scheduling (PRs #5–#6), step 1 collection (PR #7), step 2 the AI
 editor (PR #8), step 3 the digest (PR #9) and its tuning (PR #10), step 4 the
 MCP server (PR #11), then the cleanup after the rebuild (PR #13: `DEC-020`,
-`DEC-021`). Entries for scheduling and step 1 (`DEC-017`, `DEC-018`)
+`DEC-021`) and the Anthropic News scraper fix (PR #14: `DEC-022`). Entries for scheduling and step 1 (`DEC-017`, `DEC-018`)
 were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 and
 `reviews/review-2026-10-14-a25a5ce.md`.
 
@@ -579,6 +579,15 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
     judged again as a new row. That's rare and costs a fraction of a cent.
   - **The MCP's `check_status` still says "Retention: 90 days".** The Edge
     Function can't see the cleanup's variables, so it doesn't report them.
+- **First run** (collect run `43489012450`, 2026-11-13 19:07 UTC, just after the
+  PR #13 merge, `8711bf5`):
+  - The collector's own pass deleted 1,355 rows rated 1–2 that were older than
+    14 days, and 16 past 90 days. The estimate had been 1,348 at 17:39; 7 more
+    rows passed 14 days in the meantime.
+  - The `npm run cleanup` step then found nothing, as designed: both passes
+    run the same rules.
+  - Later that day the cache held 9,958 rows, and none of them rated 1–2 were
+    older than 14 days.
 
 ## DEC-021: Labs' own sites linked from HN are named by the lab, in a separate map
 **Date:** 2026-11-13 | **Phase:** cleanup (PR #13)
@@ -630,3 +639,59 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
       labs too (and `knownPublisher` for strength), plus tests.
   - **Shared code:** the digest and the MCP change together.
 
+## DEC-022: Scrapers find posts from their dates, and an empty listing warns
+**Date:** 2026-11-13 | **Phase:** after the cleanup (PR #14)
+
+- **Decision:**
+  - **Cards from dates.** `scrapeAnthropicListing` finds posts from their
+    `<time>` elements, not from one expected card shape. From each date it walks
+    up to the nearest element that also holds a title, and takes the link around
+    the title.
+  - **The date's own line is never the title, URL or summary.** That line
+    (`dateLineOf`) is the date's parent, unless that parent is a link, a
+    heading, or holds a heading, in which case it's the card itself.
+  - **Only `http(s)` pages on anthropic.com** are kept.
+  - **The empty-listing warning.** Any scraped listing page that loads (1,000+
+    characters) but gives no posts logs a warning naming the source and URL. On
+    Actions it's a `::warning` annotation with its message escaped
+    (`emptyListingWarning`, `escapeAnnotation`). It never fails the run.
+- **Context:** Anthropic changed the markup of `/news` and `/research` around
+  Oct 19. The link-shaped parser found nothing for four weeks, and the only sign
+  was an INFO line that also fits a quiet week (TROUBLESHOOTING, "Anthropic News
+  collected nothing for four weeks").
+- **Alternatives considered:**
+  - *Target the new class names.* Rejected: they are generated CSS-module names
+    (`W1FydW_…`, `bxgyUW_…`) that change when the site is rebuilt. The parser
+    would break the same quiet way again.
+  - *Keep the link-first parser, and look for a date near each link.* Rejected:
+    a card now has a category link, an image link and a title link. The
+    category link sits beside the date, so "the link nearest the date" is the
+    category page, which a quick test confirmed.
+  - *Fail the collect run when a listing gives nothing.* Rejected: one site's
+    redesign would fail the run that collects the other 29 sources and feeds
+    the editor. A warning on the run page is enough to be noticed.
+  - *Backfill the missed four weeks.* Rejected by the owner: those digest
+    mornings are past, and the press covered the big stories. The next run takes
+    the last 7 days, as always.
+- **Rationale:** `<time>` is semantic markup, not styling. Every dated card has
+  one (undated cards were already skipped, so they don't look new on every
+  run), and both the old and the new layout use it. Starting there survives
+  class-name churn and card restructuring, and the old layout keeps parsing
+  through the same code.
+- **Key properties:**
+  - **Measured on Nov 13:** every card starts one level above its date's line
+    (64 of 64 dates). In the old layout, two. `MAX_CARD_DEPTH = 8` leaves room.
+  - **A container with more than one `<time>` is a list, not a card.** The
+    walk stops there and skips the date, rather than guess.
+  - **Fixtures are real pages, trimmed.** In `src/collectors/fixtures/`, scripts,
+    styles, SVGs and image attributes are removed and the class structure is
+    kept. When the site changes again, add a new dated fixture beside these; keep
+    the old ones, so every layout stays tested.
+  - **The warning is the first piece of the source health check** on CLAUDE.md's
+    cleanup list. It catches a listing that breaks completely, not one that
+    loses only some cards.
+  - **Pitfalls the review found,** each now tested:
+    - a date's parent can be the card or its heading;
+    - a host check alone passes `javascript://anthropic.com/…`;
+    - broad title selectors can match a category label;
+    - annotations need `%`, CR and LF escaped.
