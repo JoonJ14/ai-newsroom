@@ -14,7 +14,7 @@ import { coverageOf, deduplicateItems, urlKey } from '../utils/dedup.js';
 import { mergeStoredMetadata, postgrestInList } from '../utils/supabase.js';
 import { withHitsPerPage } from './hackernews.js';
 import {
-  collectHTMLScrape, emptyListingWarning, enrichRecent, parseDayDate, readAnthropicArticle, scrapeAnthropicChangelog,
+  collectHTMLScrape, emptyListingWarning, enrichRecent, escapeAnnotation, parseDayDate, readAnthropicArticle, scrapeAnthropicChangelog,
   scrapeAnthropicListing,
 } from './scraper.js';
 import { readBody } from '../utils/http.js';
@@ -430,6 +430,8 @@ section('a listing page that loads but gives no posts — a loud warning, never 
     items = await collectHTMLScrape({
       ...SOURCE, url: 'https://www.anthropic.com/news', extraUrls: ['https://www.anthropic.com/research'],
     } as SourceConfig);
+    // A name with a newline must not start a second workflow command
+    await collectHTMLScrape({ ...SOURCE, name: 'Bad\n::error::injected 100%', url: 'https://www.anthropic.com/news' } as SourceConfig);
   } catch {
     threw = true;
   } finally {
@@ -439,8 +441,13 @@ section('a listing page that loads but gives no posts — a loud warning, never 
     else process.env.GITHUB_ACTIONS = hadActions;
   }
   const annotations = printed.filter((l) => l.startsWith('::warning title=Scraper::'));
+  check('a %, CR or LF in the message is escaped: one annotation, one line, no second command', [
+    printed.some((l) => l.split('\n').some((line) => line.startsWith('::error'))),
+    annotations.some((l) => l.includes('Bad%0A::error::injected 100%25: https://www.anthropic.com/news loaded')),
+  ], [false, true]);
+  check('escapeAnnotation', escapeAnnotation('a%b\r\nc'), 'a%25b%0D%0Ac');
   check('on Actions: one ::warning annotation per page, naming it; the run goes on with no items', [
-    threw, items?.length, annotations.length,
+    threw, items?.length, annotations.filter((l) => l.includes('::Anthropic News: ')).length,
     annotations.some((l) => l.includes('Anthropic News: https://www.anthropic.com/news loaded')),
     annotations.some((l) => l.includes('Anthropic News: https://www.anthropic.com/research loaded')),
   ], [false, 0, 2, true, true]);

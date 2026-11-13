@@ -53,9 +53,18 @@ export function emptyListingWarning(sourceName: string, pageUrl: string, html: s
     'The page layout may have changed; check its scraper in src/collectors/scraper.ts.';
 }
 
+/**
+ * A workflow command's message, escaped as GitHub requires: a `%`, CR or LF
+ * in it (a source name, a URL) can't end the annotation and start another
+ * command.
+ */
+export function escapeAnnotation(message: string): string {
+  return message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
 /** A GitHub Actions annotation when running there, a plain warning otherwise. Never fails the run. */
 function annotate(message: string) {
-  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Scraper::${message}`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Scraper::${escapeAnnotation(message)}`);
   else log.warn(message);
 }
 
