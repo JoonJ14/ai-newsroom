@@ -6,6 +6,32 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Anthropic News scraper fixed — 2026-11-13 (PR #14)
+
+#### Fixed
+
+- **Anthropic News (`anthropic_blog`) found no posts since about Oct 19.**
+  Anthropic changed the markup of `/news` and `/research`: a card's links now
+  wrap only its image or its title, and the date sits outside them. The parser
+  expected one link around the whole card, so it skipped every card. The
+  collector logged `Collected 0 items (0 filtered by date)` for four weeks, and
+  missed the Claude Fable 5.2 launch and the IPO roadshow.
+  - It now finds cards from their `<time>`, walks up to the element holding the
+    title, and takes the link around the title, never the category link beside
+    the date.
+  - The old layout still parses.
+  - No backfill: the next collect run picks up the last 7 days.
+  - Details: `docs/TROUBLESHOOTING.md`.
+
+#### Added
+
+- **A warning when a scraped listing breaks.** A page that loads but gives no
+  posts logs a warning naming the source and URL, as a `::warning` annotation on
+  Actions (`emptyListingWarning`). It never fails the run. This is the first
+  piece of the source health check.
+- Fixtures trimmed from the live pages of Nov 13
+  (`src/collectors/fixtures/anthropic-{news,research}-2026-11-13.html`), with tests.
+
 ### Cleanup after the rebuild — 2026-11-13 (PR #13)
 
 A tidy-up after the ranking rebuild. No new features, and no change to the

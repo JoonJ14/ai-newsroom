@@ -94,7 +94,10 @@ Sources are defined in `config/sources.yaml`. Each source has:
   - **The `npm audit` warnings.**
   - **Generic rubric examples** instead of dated stories (the anchors overlap the
     preview days).
-  - **A source health check.**
+  - **A source health check.** First piece done (PR #14): a scraped listing page that loads
+    but gives no posts raises a `::warning` annotation naming the source and URL
+    (`emptyListingWarning` in `src/collectors/scraper.ts`). Still to do: the other
+    collector types, and sources that go quiet for too long.
   - **Commit the audit report** (`ranking-audit.md`, on the DGX Spark only) under
     `docs/audits/`.
   - **Explicit grants in migrations 001 and 002** (see "Supabase change, Oct 30, 2026"
@@ -359,12 +362,13 @@ ai-newsroom/
 │   ├── collectors/
 │   │   ├── index.ts         # Orchestrator: loads sources.yaml, runs enabled collectors
 │   │   ├── collect.test.ts  # `npm run test:collect` regression suite (no network)
+│   │   ├── fixtures/        # Trimmed live pages for the scraper tests (Anthropic /news, /research)
 │   │   ├── rss.ts           # RSS/Atom feed collector
 │   │   ├── reddit.ts        # Reddit JSON API collector
 │   │   ├── hackernews.ts    # HackerNews API collector
 │   │   ├── github.ts        # GitHub trending + release watcher
 │   │   ├── huggingface.ts   # HuggingFace papers + spaces
-│   │   ├── scraper.ts       # Site-specific HTML scrapers (Anthropic news/research, release notes)
+│   │   ├── scraper.ts       # Site-specific HTML scrapers (Anthropic news/research, release notes); empty-listing warning
 │   │   └── types.ts         # Shared types: NewsItem, Source, etc.
 │   ├── digest/
 │   │   ├── generate.ts      # `npm run digest` (--dry-run, --preview): CLI, adapters, credentials

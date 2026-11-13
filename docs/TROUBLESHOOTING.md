@@ -8,11 +8,75 @@ README's Troubleshooting section.
 
 Phases: scheduling (PRs #5–#6), then the ranking rebuild: step 1 collection
 (PR #7), step 2 the AI editor (PR #8), step 3 the digest (PR #9) and its tuning
-(PR #10), step 4 the MCP server (PR #11). Then the federation setup and the
-cleanup after the rebuild (Nov 2026, PR #13). The scheduling and step-1 entries at
+(PR #10), step 4 the MCP server (PR #11). Then the federation setup, the
+cleanup after the rebuild (Nov 2026, PR #13) and the Anthropic News scraper
+fix (PR #14). The scheduling and step-1 entries at
 the end were written afterwards, from PRs #5–#7, `docs/scheduling.md`,
 migration 003 and `reviews/review-2026-10-14-a25a5ce.md`. The full session record for steps 2–4 is
 [`sessions/2026-10-22-ranking-rebuild-steps-2-4.md`](sessions/2026-10-22-ranking-rebuild-steps-2-4.md).
+
+---
+
+## RESOLVED — Anthropic News collected nothing for four weeks (a layout change)
+**Phase:** after the cleanup (PR #14) | **Severity:** High | **Status:** Resolved
+**Date resolved:** 2026-11-13
+
+**Symptom.** Every collect run logged
+`Collected 0 items from Anthropic News (0 filtered by date)`.
+- **Since when:** the newest stored `anthropic_blog` row was fetched on Oct 18,
+  so the scraper had found nothing since about Oct 18–19.
+- **Missed posts** included:
+  - Nov 9: "Introducing Claude Fable 5.2 and Claude Mythos 5.2";
+  - Nov 10: "Anthropic launches roadshow for proposed initial public offering";
+  - Nov 13: "Building strong safety evaluations".
+- **Found while** checking PR #13's collect run, not by any alarm. The run
+  stayed green, and the digest still had Anthropic stories through the press
+  and HN, just never Anthropic's own post.
+
+**Diagnosis / root cause.**
+- **The log line is the clue.** In `collectHTMLScrape`, "filtered by date" is
+  the number of posts parsed minus those recent enough to keep. A quiet week
+  reads like "0 items (20 filtered by date)". "0 (0 filtered)" means the parser
+  found no posts at all.
+- **The pages were fine.** `/news` and `/research` both answered HTTP 200 with
+  about 340 KB, and running the collector's own parser on them found nothing.
+- **The markup had changed.** The parser expected each post to be one `<a>`
+  wrapping its `<time>`, title and summary. Now each card is an `<article>`:
+  - its `<header>` holds a category link ("Announcements") and the `<time>`;
+  - the image has a link of its own;
+  - the title sits in another link.
+
+  The pages had 35 and 29 `<time>` elements, and no link contained one.
+- **The changelog scraper** (`platform.claude.com`) parses a different page and
+  kept working.
+
+**Fix** (`src/collectors/scraper.ts`):
+- **Find cards from their dates.** For each `<time>`, walk up to the nearest
+  element that also holds a title (a heading, or a title-class span). Give up
+  if that element holds more than one date, because it's a list of cards then,
+  not one card.
+- **The URL** comes from the link wrapping the title, else the card's own link,
+  else its first other link. It's never the category link beside the date.
+- **The summary** is the card's first paragraph outside the date line.
+- **The category** is the date line's label. The site's unfilled "[TeamName]"
+  placeholder is skipped.
+- **The old one-link layout** still parses the same way (its test is unchanged).
+- **A loud warning.** A scraped listing page that loads (1,000+ characters) but
+  gives no posts now logs a warning naming the source and URL: a `::warning`
+  annotation on Actions (`emptyListingWarning`). It doesn't fail the run. This
+  is the first piece of the cleanup list's source health check.
+
+**Results & verification.**
+- **The live pages, read-only, on Nov 13:** 29 posts on `/news` and 25 on
+  `/research`, including the three above, at their article URLs (the model
+  launch at `/claude-fable-and-mythos-5-2`), each with a summary.
+- **Tests:** trimmed fixtures of both pages are in `src/collectors/fixtures/`
+  (a model launch, the featured card and its list row merging, research posts,
+  the placeholder). Plus the warning, through `collectHTMLScrape` with a
+  stubbed fetch.
+- **No backfill.** The next collect run picks up whatever the 7-day filter
+  allows. Older missed posts stay missed: their digest mornings are past, and
+  the press covered them.
 
 ---
 
