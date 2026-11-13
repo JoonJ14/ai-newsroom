@@ -197,8 +197,9 @@ direct source). `itemOutlet` names an HN link from it, so the copy reads
 - the "most widely carried" tiebreak (`Story.breadth`).
 
 So the ranking is unchanged. The Codex review caught the tiebreak: listing
-the lab once had shortened `outlets`, which `rankStories` counted. Whether a lab's own site via HN should also count
-as strong is left to the owner.
+the lab once had shortened `outlets`, which `rankStories` counted. The owner
+decided on 2026-11-13 to keep lab links naming-only (`DEC-021`): revisit only
+if a lab's own announcement is noticed ranking too low.
 
 **Results & verification.** Previews on `main` and the branch, with
 `--no-repeat-check`, differ only in outlet names:

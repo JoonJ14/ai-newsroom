@@ -77,12 +77,14 @@ Sources are defined in `config/sources.yaml`. Each source has:
 - **Owner steps and decisions:**
   - Optional: the disabled-sources SQL in TROUBLESHOOTING ("Old rows from disabled
     sources"). Preview first.
-  - Should an HN link to a lab's own site count as a strong source, and as the lab
-    for the per-outlet cap (`DEC-021`)? Today it only changes the outlet's name.
+  - Decided 2026-11-13: HN links to a lab's own site stay **naming-only** (`DEC-021`).
+    They aren't strong sources, the lab for the per-outlet cap, or one outlet for the
+    tiebreak. Revisit only if a lab's own announcement is noticed ranking too low.
   - Optional: narrow the federation rule's OAuth scope if the Console offers
     something below `workspace:developer` that can still call the Messages API.
-  - Local model-backed previews need a fresh `ANTHROPIC_API_KEY` in `.env`: the old
-    per-machine keys (`ai-newsroom-local`, `ai-newsroom-mac-local`) expired.
+  - Local model-backed previews need a fresh `ANTHROPIC_API_KEY` in `.env`:
+    `ai-newsroom-local` expired on 2026-11-13, and `ai-newsroom-mac-local` expires
+    around 2026-11-15.
 - **Dates:**
   - The Vault GitHub token (`github_dispatch_token`, which Supabase Cron dispatches
     with) expires around **2027-01-10**. Renew it around **2027-01-03**
@@ -212,8 +214,8 @@ Sources are defined in `config/sources.yaml`. Each source has:
     `SOURCE_DISPLAY_NAMES` (`blog.google` is "Google AI"). **Naming only**: the ranking reads
     `rankingOutlet` (strong sources, the per-outlet cap, `Story.breadth` for the "widely
     carried" tiebreak), which still sees the bare domain; readers see `itemOutlet`. The
-    repeat check's `OUTLET_WORDS` still reads `PUBLISHERS` only. Don't merge the two maps
-    (`DEC-021`).
+    repeat check's `OUTLET_WORDS` still reads `PUBLISHERS` only. Don't merge the two maps.
+    Naming-only is the owner's decision (2026-11-13, `DEC-021`).
   - **Retention** (`src/utils/retention.ts`): judged items rated ≤ 2 are deleted 14 days
     after fetching; unjudged keep 90. `CLEANUP_LOW_IMPORTANCE_MAX` (0 = off) and
     `CLEANUP_LOW_IMPORTANCE_DAYS` (8–90) as repository variables, set for the whole collect
@@ -454,7 +456,7 @@ ai-newsroom/
 - `npm run collect -- --source anthropic_blog` — Run a single collector
 - `npm run cleanup` — Both retention rules: 90 days, and 14 for judged items rated ≤ 2 (`CLEANUP_LOW_IMPORTANCE_*`). Deletes, so service key only, in practice on Actions after each collect. `npm run collect` ends with the same pass
 - `npm run digest` — Generate and send the digest. Moves `digest_state.last_digest_at`: never run it just to test
-- `npm run digest -- --preview --date YYYY-MM-DD [--layout plain|embeds] [--text] [--history] [--no-repeat-check]` — Print the digest for a past 9:00 AM ET window from stored judgments; replays the 7 mornings before to rebuild the history (repeat check with the local `ANTHROPIC_API_KEY`, ~$0.015; the old per-machine keys expired, so a fresh one); anon key, never sends or writes
+- `npm run digest -- --preview --date YYYY-MM-DD [--layout plain|embeds] [--text] [--history] [--no-repeat-check]` — Print the digest for a past 9:00 AM ET window from stored judgments; replays the 7 mornings before to rebuild the history (repeat check with the local `ANTHROPIC_API_KEY`, ~$0.015; the old per-machine keys expire by about 2026-11-15, so a fresh one); anon key, never sends or writes
 - `npm run digest -- --dry-run` — Print the real next digest without sending (service key)
 - `npm run typecheck` — Type-check `src/` (note: `tsconfig.json` EXCLUDES `supabase/`)
 - `npm run test:mcp` — MCP regression suite; no network or credentials needed
@@ -541,8 +543,9 @@ don't remove it until it is.
 **On a development machine** `.env` holds only `SUPABASE_URL`, `SUPABASE_ANON_KEY`
 (read-only) and `ANTHROPIC_API_KEY`:
 - **No service key on dev machines.** Writes happen on GitHub Actions.
-- **One Anthropic key per machine.** The old ones (`ai-newsroom-local`,
-  `ai-newsroom-mac-local`) expired; create a fresh one only when a model-backed
+- **One Anthropic key per machine.** The old ones are ending (`ai-newsroom-local`
+  expired on 2026-11-13, `ai-newsroom-mac-local` expires around 2026-11-15); create a
+  fresh one only when a model-backed
   preview is wanted. Without one, the digest preview uses the key rule and
   `npm run preview:editor -- --dry-run` refuses to run.
 - **Never `source .env` in the terminal you start Claude Code from.** Claude Code

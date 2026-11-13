@@ -226,7 +226,9 @@ Guardian (via HN)".
   - as its own domain, for the per-outlet cap;
   - as a second outlet, for the "most widely carried" tiebreak.
 
-  Whether it should count as the lab is an open owner decision (`DEC-021`).
+  That is the owner's decision (2026-11-13, `DEC-021`): the ranking stays
+  as it is. Revisit only if a lab's own announcement is noticed ranking too
+  low.
 
 ## Why-lines that describe coverage
 
@@ -358,8 +360,8 @@ Two differences from the real run, both because the anon key can't read
   story history, running the repeat check on each in memory with the local
   `ANTHROPIC_API_KEY` (about $0.015 for the eight calls). With
   `--no-repeat-check`, or without a key, every morning uses the key rule. The
-  old per-machine keys expired; put a fresh one in `.env` for model-backed
-  previews ([`docs/editor.md`](editor.md#local-machines)).
+  old per-machine keys expire by about 2026-11-15; put a fresh one in `.env`
+  for model-backed previews ([`docs/editor.md`](editor.md#local-machines)).
 
   A replayed morning that falls back to the old ranking (before Oct 10, 2026,
   when nothing was judged yet) also asks for the fallback summary with that

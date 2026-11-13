@@ -310,8 +310,9 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
   - `PUBLISHERS` also decides what counts as strong. Adding a domain changes
     the digest. Forbes is left out because of its contributor posts.
   - Lab domains are in a separate map since PR #13, `LAB_PUBLISHERS`
-    (`DEC-021`). They name the outlet but, for now, don't count as strong, as
-    the lab for the per-outlet cap, or once for the "widely carried" tiebreak.
+    (`DEC-021`). They name the outlet only. By the owner's decision of
+    2026-11-13 they don't count as strong, as the lab for the per-outlet cap,
+    or once for the "widely carried" tiebreak.
 
 ## DEC-013: One copy of the selection code, in `supabase/functions/_shared/newsroom/`
 **Date:** 2026-10-22 | **Phase:** step 4
@@ -610,7 +611,7 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
     so the ranking would change. On Oct 19 an HN link to alignment.openai.com
     (rated 7) would have moved into Top stories.
 - **Key properties:**
-  - **For now, only how outlets are named and merged changes.** The ranking
+  - **Only how outlets are named and merged changes.** The ranking
     reads `rankingOutlet`, which still sees a lab's site via HN as its bare
     domain:
     - the strong-source test;
@@ -620,9 +621,12 @@ were written afterwards from PRs #5–#7, `docs/scheduling.md`, migration 003 an
     there, though readers see one. Readers see `itemOutlet`.
   - The repeat check's prompt lists the same outlet names as the digest, so it
     shows the lab once too. That's its input text, not its logic.
-  - **Owner decision pending:** should a lab's own site via HN also count as
-    strong (it is a primary source), as the lab for the cap, and once for the
-    tiebreak? That is `rankingOutlet` in `source-names.ts` naming labs too
-    (then `knownPublisher` for strength), plus tests.
+  - **Owner decision (2026-11-13): lab links stay naming-only.** An HN link to
+    a lab's own site doesn't count as a strong source, as the lab for the
+    per-outlet cap, or once for the tiebreak. The owner is happy with the
+    current ranking and doesn't want it reshuffled.
+    - **Revisit only if** a lab's own announcement is noticed ranking too low.
+    - **The change would then be:** `rankingOutlet` in `source-names.ts` naming
+      labs too (and `knownPublisher` for strength), plus tests.
   - **Shared code:** the digest and the MCP change together.
 

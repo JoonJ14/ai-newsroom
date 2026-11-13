@@ -338,8 +338,9 @@ reason means the two differ, as when the Branch/ref field said
 
 Local runs (`npm run preview:editor -- --dry-run`, and the repeat check in
 `npm run digest -- --preview`) use `ANTHROPIC_API_KEY` from `.env`. The old
-per-machine keys (`ai-newsroom-local`, `ai-newsroom-mac-local`) expired. Put a
-fresh key in `.env` when you want a model-backed preview.
+per-machine keys are ending: `ai-newsroom-local` expired on 2026-11-13, and
+`ai-newsroom-mac-local` expires around 2026-11-15. After that, put a fresh key
+in `.env` when you want a model-backed preview.
 - **With no key:** the digest preview uses the key rule, and the editor's
   `--dry-run` refuses to run.
 - **With an expired key still in `.env`:** every call fails with 401. The

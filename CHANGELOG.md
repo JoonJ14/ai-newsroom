@@ -28,7 +28,8 @@ outlets under their new names, as the digest shows them). Design reasoning:
   - **Naming only.** The ranking reads `rankingOutlet`, the outlet as it was
     before: the strong-source test, the per-outlet cap and the "most widely
     carried" tiebreak (`Story.breadth`). The repeat check's `OUTLET_WORDS` is
-    unchanged too.
+    unchanged too. Keeping it naming-only is the owner's decision
+    (2026-11-13, `DEC-021`).
   - Digest previews (`--no-repeat-check`) of Oct 15 and 19 differ from `main`
     only in outlet names. Nov 6, 11 and 13 are identical.
 - **Items the AI editor rated 1–2 are deleted 14 days after they were
