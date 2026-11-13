@@ -638,12 +638,14 @@ section('fallback — the AI summary uses the editor\'s client');
   check('the prompt lists the top 30 titles, as before', [prompt.includes('- [techcrunch_ai] Story 30'), prompt.includes('Story 31')], [true, false]);
 
   warnings.length = 0;
-  const failures = await Promise.all([
-    apiSummarizer(fake(() => { throw new Error('401 Token exchange failed'); }).client, 'm', warn)(items),
-    apiSummarizer(fake(() => answer('Two labs', 'max_tokens')).client, 'm', warn)(items),
-    apiSummarizer(fake(() => answer('', 'refusal')).client, 'm', warn)(items),
-    apiSummarizer(fake(() => answer('   ')).client, 'm', warn)(items),
-  ]);
+  const failures: (string | undefined)[] = [];
+  // One at a time, so the warnings arrive in this order
+  for (const reply of [
+    () => { throw new Error('401 Token exchange failed'); },
+    () => answer('Two labs', 'max_tokens'),
+    () => answer('', 'refusal'),
+    () => answer('   '),
+  ]) failures.push(await apiSummarizer(fake(reply).client, 'm', warn)(items));
   check('an error, a cut-off answer, a refusal or no text: no summary, never an exception', failures, [undefined, undefined, undefined, undefined]);
   check('…each with a warning that says why', warnings, [
     'AI summary skipped: 401 Token exchange failed', 'AI summary skipped: the model stopped with max_tokens',
