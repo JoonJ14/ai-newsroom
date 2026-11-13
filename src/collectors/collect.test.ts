@@ -1,7 +1,9 @@
 /**
- * Regression tests for collection: item clean-up, dedup coverage, and the
- * Anthropic parsers. Each case is a defect found in the ranking audit (Oct
- * 2026). Pure functions and inline HTML only, so no network or credentials.
+ * Regression tests for collection: item clean-up, dedup coverage, the
+ * Anthropic parsers, and which rows the cleanup's retention rules select.
+ * Most cases are defects found in the ranking audit (Oct 2026). Pure
+ * functions, inline HTML and a fake query builder only, so no network or
+ * credentials.
  *
  * Usage: npm run test:collect
  */
@@ -14,6 +16,11 @@ import {
   enrichRecent, parseDayDate, readAnthropicArticle, scrapeAnthropicChangelog, scrapeAnthropicListing,
 } from './scraper.js';
 import { readBody } from '../utils/http.js';
+import {
+  DEFAULT_LOW_IMPORTANCE_RULE, lowImportanceRule, RETENTION_DAYS, whereLowImportanceExpired, type RetentionFilters,
+} from '../utils/retention.js';
+import { DEFAULT_DAYS as EDITOR_CONTEXT_DAYS } from '../editor/config.js';
+import { HISTORY_DAYS } from '../digest/repeats.js';
 import type { NewsItem, SourceConfig } from './types.js';
 
 let passed = 0;
@@ -377,6 +384,73 @@ section('scrapeAnthropicChangelog — one item per bullet');
     { ...SOURCE, id: 'anthropic_changelog' }, 'https://platform.claude.com/docs/en/release-notes/overview');
   check('same words on two days survive dedup', deduplicateItems(twoDays).length, 2);
   check('earlier bullets keep their URLs', [...before].filter(([text, url]) => after.get(text) !== url), []);
+}
+
+// ─── retention ───────────────────────────────────────────────────
+
+section('retention — judged 1–2 go after 14 days; unjudged keep the 90');
+{
+  const NOW = new Date('2026-11-13T12:00:00.000Z');
+  const daysAgo = (n: number) => new Date(NOW.getTime() - n * 24 * 60 * 60 * 1000).toISOString();
+  type Row = { id: string; editor_judged_at: string | null; editor_importance: number | null; fetched_at: string | null };
+
+  /** Records the filters, as PostgREST's builder would receive them, and applies them to rows. */
+  class FakeFilters implements RetentionFilters<FakeFilters> {
+    calls: string[] = [];
+    private tests: ((r: Row) => boolean)[] = [];
+    not(column: string, operator: string, value: unknown) {
+      this.calls.push(`not ${column} ${operator} ${value}`);
+      if (operator !== 'is' || value !== null) throw new Error('fake: only "not is null"');
+      this.tests.push((r) => r[column as keyof Row] != null);
+      return this;
+    }
+    lte(column: string, value: unknown) {
+      this.calls.push(`lte ${column} ${value}`);
+      this.tests.push((r) => r[column as keyof Row] != null && (r[column as keyof Row] as number) <= (value as number));
+      return this;
+    }
+    lt(column: string, value: unknown) {
+      this.calls.push(`lt ${column} ${value}`);
+      this.tests.push((r) => r[column as keyof Row] != null && (r[column as keyof Row] as string) < (value as string));
+      return this;
+    }
+    selected(rows: Row[]) {
+      return rows.filter((r) => this.tests.every((t) => t(r))).map((r) => r.id);
+    }
+  }
+  const judgedRow = (id: string, importance: number, fetchedDaysAgo: number | null): Row =>
+    ({ id, editor_judged_at: daysAgo(1), editor_importance: importance, fetched_at: fetchedDaysAgo === null ? null : daysAgo(fetchedDaysAgo) });
+  const rows: Row[] = [
+    judgedRow('rated-1-15d', 1, 15),
+    judgedRow('rated-2-60d', 2, 60),
+    judgedRow('rated-3-60d', 3, 60),
+    judgedRow('rated-9-60d', 9, 60),
+    judgedRow('rated-1-13d', 1, 13),
+    judgedRow('rated-2-exactly-14d', 2, 14),
+    judgedRow('rated-1-no-fetched-at', 1, null),
+    { id: 'unjudged-60d', editor_judged_at: null, editor_importance: null, fetched_at: daysAgo(60) },
+  ];
+
+  const { rule, warnings } = lowImportanceRule({});
+  check('defaults: importance 2 or lower, 14 days', [rule, warnings], [{ maxImportance: 2, days: 14 }, []]);
+  const q = whereLowImportanceExpired(new FakeFilters(), rule!, NOW);
+  check('the filters sent: judged, rated ≤ 2, fetched before the cutoff',
+    q.calls, ['not editor_judged_at is null', 'lte editor_importance 2', `lt fetched_at ${daysAgo(14)}`]);
+  check('selects only judged rows rated 1–2 and older than 14 days', q.selected(rows), ['rated-1-15d', 'rated-2-60d']);
+  check('settings change both numbers',
+    whereLowImportanceExpired(new FakeFilters(), lowImportanceRule({ CLEANUP_LOW_IMPORTANCE_MAX: '3', CLEANUP_LOW_IMPORTANCE_DAYS: '30' }).rule!, NOW)
+      .selected(rows), ['rated-2-60d', 'rated-3-60d']);
+  check('0 switches the rule off', lowImportanceRule({ CLEANUP_LOW_IMPORTANCE_MAX: '0' }).rule, null);
+  check('unset or blank means the default', lowImportanceRule({ CLEANUP_LOW_IMPORTANCE_MAX: ' ', CLEANUP_LOW_IMPORTANCE_DAYS: '' }).rule,
+    DEFAULT_LOW_IMPORTANCE_RULE);
+  const bad = lowImportanceRule({ CLEANUP_LOW_IMPORTANCE_MAX: '11', CLEANUP_LOW_IMPORTANCE_DAYS: '7' });
+  check('bad values: reported, and the defaults used', bad, { rule: DEFAULT_LOW_IMPORTANCE_RULE, warnings: [
+    'CLEANUP_LOW_IMPORTANCE_MAX must be an integer from 0 to 10, got "11"; using 2',
+    'CLEANUP_LOW_IMPORTANCE_DAYS must be an integer from 8 to 90, got "7"; using 14',
+  ] });
+  check('not a number, or not whole: reported', ['2.5', 'two'].map((v) => lowImportanceRule({ CLEANUP_LOW_IMPORTANCE_MAX: v }).warnings.length), [1, 1]);
+  check('the shortest allowed period is past the editor\'s and the digest\'s 7-day look-back',
+    [8 > EDITOR_CONTEXT_DAYS, 8 > HISTORY_DAYS, DEFAULT_LOW_IMPORTANCE_RULE.days > 8, RETENTION_DAYS], [true, true, true, 90]);
 }
 
 // ─── summary ─────────────────────────────────────────────────────

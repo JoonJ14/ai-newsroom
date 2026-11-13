@@ -52,17 +52,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run collect
 
-      - name: Cleanup old items (90-day retention)
+      # Every row after 90 days; rows the editor rated 2 or lower after 14
+      # (src/utils/retention.ts). Unjudged rows keep the 90 days.
+      - name: Cleanup old and low-rated items
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # Optional repository variables; unset means 2 and 14 days, 0 switches the rule off
+          CLEANUP_LOW_IMPORTANCE_MAX: ${{ vars.CLEANUP_LOW_IMPORTANCE_MAX }}
+          CLEANUP_LOW_IMPORTANCE_DAYS: ${{ vars.CLEANUP_LOW_IMPORTANCE_DAYS }}
         run: npm run cleanup
 
   # The AI editor judges what collection just stored (src/editor/, docs/editor.md).
   # Its own job, so that only it can request an OIDC token, and so that it can
   # fail without failing collection: `continue-on-error` keeps the run green, and
-  # anything left unjudged is retried on the next run. The digest doesn't read
-  # the judgments yet (ranking rebuild step 3).
+  # anything left unjudged is retried on the next run. The digest and the MCP
+  # server read the judgments.
   editor:
     needs: collect
     # Also after a failed collect: earlier runs' items may still need judging
@@ -97,9 +102,11 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          # Federation IDs from the Console wizard, as repository variables (not
-          # secrets: they identify, they don't authenticate). While they are
-          # unset, the editor falls back to the ANTHROPIC_API_KEY secret.
+          # Workload identity federation: the IDs are repository variables (not
+          # secrets: they identify, they don't authenticate). This repository
+          # holds no Anthropic key. ANTHROPIC_API_KEY is for forks without
+          # federation; here it is empty. While the federation variables are
+          # set, a failed exchange does not fall back to it (docs/editor.md).
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
