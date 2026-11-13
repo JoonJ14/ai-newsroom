@@ -55,16 +55,33 @@ migration 003 and `reviews/review-2026-10-14-a25a5ce.md`. The full session recor
   element that also holds a title (a heading, or a title-class span). Give up
   if that element holds more than one date, because it's a list of cards then,
   not one card.
+- **The title is never in the date's own line.** That line is the date's parent
+  when that parent is neither a link nor holds a heading itself; otherwise the
+  parent is the card (an old card could be `<a><time/><h4/></a>`). So a
+  category styled as a title can't stand in for it.
 - **The URL** comes from the link wrapping the title, else the card's own link,
-  else its first other link. It's never the category link beside the date.
+  else its first other link. It's never the category link beside the date, and
+  it must be an `http(s)` page on anthropic.com (a `javascript://anthropic.com/…`
+  link has that host too; Codex caught it).
 - **The summary** is the card's first paragraph outside the date line.
-- **The category** is the date line's label. The site's unfilled "[TeamName]"
-  placeholder is skipped.
+- **The category** is the date line's label, or else the card's own category
+  element: the `/news` list keeps it beside the date. The site's unfilled
+  "[TeamName]" placeholder is skipped.
 - **The old one-link layout** still parses the same way (its test is unchanged).
 - **A loud warning.** A scraped listing page that loads (1,000+ characters) but
   gives no posts now logs a warning naming the source and URL: a `::warning`
-  annotation on Actions (`emptyListingWarning`). It doesn't fail the run. This
-  is the first piece of the cleanup list's source health check.
+  annotation on Actions (`emptyListingWarning`), its message escaped as GitHub
+  requires (`escapeAnnotation`). It doesn't fail the run. This is the first
+  piece of the cleanup list's source health check.
+- **Review:** six Codex rounds and two post-fix validations. Seven findings,
+  all fixed and tested:
+  - `http(s)` links only;
+  - the `/news` list's category;
+  - the title never taken from the date line;
+  - a date line that is really the card (`<a><time/><h4/></a>`);
+  - a date inside the heading;
+  - the escaping;
+  - a test that could not have passed.
 
 **Results & verification.**
 - **The live pages, read-only, on Nov 13:** 29 posts on `/news` and 25 on

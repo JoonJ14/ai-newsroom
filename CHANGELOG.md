@@ -17,8 +17,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   collector logged `Collected 0 items (0 filtered by date)` for four weeks, and
   missed the Claude Fable 5.2 launch and the IPO roadshow.
   - It now finds cards from their `<time>`, walks up to the element holding the
-    title, and takes the link around the title, never the category link beside
-    the date.
+    title, and takes the link around the title. It never takes the category link
+    beside the date, never takes a title from the date's own line, and accepts
+    only `http(s)` pages on anthropic.com.
   - The old layout still parses.
   - No backfill: the next collect run picks up the last 7 days.
   - Details: `docs/TROUBLESHOOTING.md`.
@@ -27,7 +28,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A warning when a scraped listing breaks.** A page that loads but gives no
   posts logs a warning naming the source and URL, as a `::warning` annotation on
-  Actions (`emptyListingWarning`). It never fails the run. This is the first
+  Actions (`emptyListingWarning`, its message escaped). It never fails the run. This is the first
   piece of the source health check.
 - Fixtures trimmed from the live pages of Nov 13
   (`src/collectors/fixtures/anthropic-{news,research}-2026-11-13.html`), with tests.
