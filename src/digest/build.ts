@@ -65,7 +65,7 @@ export interface DigestInput {
   history: HistoryEntry[];
   /** The repeat check's model call; without one, the key rule is used. */
   repeatCall?: RepeatCall;
-  /** The fallback's optional AI summary (generate.ts: Claude, if a key is set). */
+  /** The fallback's optional AI summary (summary.ts: Claude, with the editor's credentials if there are any). */
   summarize?: (items: NewsItem[]) => Promise<string | undefined>;
 }
 

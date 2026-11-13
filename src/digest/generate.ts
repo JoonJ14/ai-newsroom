@@ -22,6 +22,9 @@
  * replays the 7 mornings before its date to rebuild the history, running the
  * check on each with the local ANTHROPIC_API_KEY. --dry-run needs the
  * service key, to read digest_state.
+ *
+ * A fallback morning (the old ranking) also asks for a short AI summary
+ * (summary.ts), with the same credentials and model; without them, none.
  */
 
 import 'dotenv/config';
@@ -38,6 +41,7 @@ import { discordPayloads, renderText, type DigestDocument } from './render.js';
 import { apiRepeatCall, REPEAT_EFFORT, type RepeatCall } from './repeats.js';
 import { runDigest, type RunMode, type RunResult } from './run.js';
 import { supabaseStore } from './store.js';
+import { summarizerFromEnv } from './summary.js';
 import { sendDiscordDigest } from './adapters/discord.js';
 import { sendTelegramDigest } from './adapters/telegram.js';
 import { sendSlackDigest } from './adapters/slack.js';
@@ -56,51 +60,21 @@ function annotate(message: string) {
   else log.warn(message);
 }
 
-/** Only the fallback (the old ranking) uses this, and only with ANTHROPIC_API_KEY set. */
-async function generateAISummary(items: NewsItem[]): Promise<string | undefined> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return undefined;
-
-  log.info('Generating AI summary via Claude API...');
-
-  const titles = items
-    .slice(0, 30)
-    .map((i) => `- [${i.source}] ${i.title}`)
-    .join('\n');
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        messages: [
-          {
-            role: 'user',
-            content: `You are an AI news analyst. Given these top AI news items from the last 24 hours, write a 2-3 sentence executive summary of the most important developments. Be specific about company names and what happened. No preamble.\n\n${titles}`,
-          },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      log.warn(`Claude API returned ${res.status}, skipping AI summary`);
-      return undefined;
-    }
-
-    const data = (await res.json()) as {
-      content: Array<{ type: string; text: string }>;
-    };
-    return data.content[0]?.text;
-  } catch (err) {
-    log.warn('AI summary generation failed', (err as Error).message);
-    return undefined;
-  }
+/**
+ * The fallback's optional AI summary (summary.ts): the editor's credentials
+ * and model. Only a fallback morning calls it; without credentials, none.
+ */
+function summaryFromEnv(): { summarize?: (items: NewsItem[]) => Promise<string | undefined>; label: string } {
+  const setup = summarizerFromEnv(process.env, annotate);
+  if (!setup.summarize) return { label: `off (${setup.auth})` };
+  const summarize = setup.summarize;
+  return {
+    label: `${setup.model}, ${setup.auth}`,
+    summarize: (items) => {
+      log.info(`Generating the fallback's AI summary (${setup.model}, ${setup.auth})...`);
+      return summarize(items);
+    },
+  };
 }
 
 async function sendToAdapter(adapter: string, doc: DigestDocument, layout: DigestLayout) {
@@ -203,7 +177,11 @@ async function main() {
   const noCheck = process.argv.includes('--no-repeat-check');
   const repeat = noCheck ? { model: '', auth: 'off (--no-repeat-check)' } : repeatCallFromEnv();
   const repeatUsage = emptyUsage();
-  log.info(`Starting digest (${mode}, ${layout} layout); repeat check: ${repeat.model ? `${repeat.model}, ` : ''}${repeat.auth}`);
+  const summary = summaryFromEnv();
+  log.info(
+    `Starting digest (${mode}, ${layout} layout); repeat check: ${repeat.model ? `${repeat.model}, ` : ''}${repeat.auth}; ` +
+      `fallback summary: ${summary.label}`,
+  );
 
   // Validates the adapter's credentials; previews and dry runs send nothing
   const adapter = mode === 'send' ? loadDigestConfig().adapter : 'discord';
@@ -219,7 +197,7 @@ async function main() {
     sources,
     dir: sourceDirectory(),
     deliver: (doc, l) => sendToAdapter(adapter, doc, l),
-    summarize: generateAISummary,
+    summarize: summary.summarize,
     repeatCall: counted(repeat.call, repeatUsage),
     onReplay: (day, p) => log.info(
       `Replayed ${day}: ${p.shown.top.length + p.shown.alsoNotable.length + p.shown.builders.length + p.shown.paper.length} shown, ` +

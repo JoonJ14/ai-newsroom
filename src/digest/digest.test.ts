@@ -8,6 +8,7 @@
  * Usage: npm run test:digest
  */
 
+import { readdirSync, readFileSync } from 'node:fs';
 import type { NewsItem } from '../collectors/types.js';
 import { loadSources, type StoredItem } from '../editor/db.js';
 import {
@@ -29,6 +30,7 @@ import {
 } from './render.js';
 import { runDigest } from './run.js';
 import { parseShown, type DigestStore } from './store.js';
+import { apiSummarizer, summarizerFromEnv, SUMMARY_MAX_TOKENS, type MessagesClient } from './summary.js';
 import { sendSlackDigest } from './adapters/slack.js';
 import { sendTelegramDigest } from './adapters/telegram.js';
 import { sendDiscordDigest } from './adapters/discord.js';
@@ -588,6 +590,70 @@ section('fallback');
   await buildDigest({ ...base, items: mostlyUnjudged, editorColumns: true, summarize: async () => { summarized++; return 'S'; } });
   await buildDigest({ ...base, items: half, editorColumns: true, summarize: async () => { summarized++; return 'S'; } });
   check('only the fallback asks for the AI summary', summarized, 1);
+  const noSummary = await buildDigest({ ...base, items: mostlyUnjudged, editorColumns: true, summarize: async () => undefined });
+  check('no summary (skipped or failed): the fallback digest is still built, without an intro',
+    [noSummary.mode, noSummary.doc.intro, noSummary.doc.sections.length > 0], ['fallback', undefined, true]);
+}
+
+section('fallback — the AI summary uses the editor\'s client');
+{
+  const warnings: string[] = [];
+  const warn = (m: string) => warnings.push(m);
+  const items = Array.from({ length: 35 }, (_, i) => ({ ...judged('techcrunch_ai'), title: `Story ${i + 1}` }));
+  type Created = { body: Record<string, unknown>; options: Record<string, unknown> };
+  const fake = (reply: () => unknown) => {
+    const calls: Created[] = [];
+    const client = { messages: { create: async (body: Record<string, unknown>, options: Record<string, unknown>) => {
+      calls.push({ body, options });
+      return reply();
+    } } } as unknown as MessagesClient;
+    return { client, calls };
+  };
+  const answer = (text: string, stop_reason = 'end_turn') => ({ stop_reason, content: [{ type: 'text', text }] });
+
+  const modes: string[] = [];
+  const factory = (client: MessagesClient) => (mode: string) => {
+    modes.push(mode);
+    return client;
+  };
+  check('no credentials: no summary', [summarizerFromEnv({}, warn).summarize, summarizerFromEnv({}, warn).auth], [undefined, 'no credentials']);
+  const ok = fake(() => answer('  Two labs shipped models.  '));
+  const viaKey = summarizerFromEnv({ ANTHROPIC_API_KEY: 'k' }, warn, factory(ok.client));
+  const viaFederation = summarizerFromEnv({
+    ANTHROPIC_FEDERATION_RULE_ID: 'fdrl_1', ANTHROPIC_ORGANIZATION_ID: 'org', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://t', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 't',
+    EDITOR_MODEL: 'claude-haiku-9',
+  }, warn, factory(ok.client));
+  check('the client comes from the editor\'s createAnthropicClient, by auth mode: federation first, then the key',
+    [modes, viaKey.auth, viaFederation.auth], [['api-key', 'federation-github'], 'ANTHROPIC_API_KEY', 'workload identity federation (GitHub OIDC token)']);
+  check('the editor\'s model: EDITOR_MODEL, else its default', [viaKey.model, viaFederation.model], ['claude-haiku-5-5', 'claude-haiku-9']);
+  check('the real client is built offline, with no request', typeof summarizerFromEnv({ ANTHROPIC_API_KEY: 'k' }, warn).summarize, 'function');
+
+  check('a summary, trimmed', await viaKey.summarize!(items), 'Two labs shipped models.');
+  const sent = ok.calls[0];
+  check('the request: model, a small token cap, effort low, no temperature or thinking setting',
+    [sent.body.model, sent.body.max_tokens, sent.body.output_config, 'temperature' in sent.body, 'thinking' in sent.body],
+    ['claude-haiku-5-5', SUMMARY_MAX_TOKENS, { effort: 'low' }, false, false]);
+  check('one quick try: a timeout and one retry', sent.options, { timeout: 30_000, maxRetries: 1 });
+  const prompt = (sent.body.messages as { content: string }[])[0].content;
+  check('the prompt lists the top 30 titles, as before', [prompt.includes('- [techcrunch_ai] Story 30'), prompt.includes('Story 31')], [true, false]);
+
+  warnings.length = 0;
+  const failures = await Promise.all([
+    apiSummarizer(fake(() => { throw new Error('401 Token exchange failed'); }).client, 'm', warn)(items),
+    apiSummarizer(fake(() => answer('Two labs', 'max_tokens')).client, 'm', warn)(items),
+    apiSummarizer(fake(() => answer('', 'refusal')).client, 'm', warn)(items),
+    apiSummarizer(fake(() => answer('   ')).client, 'm', warn)(items),
+  ]);
+  check('an error, a cut-off answer, a refusal or no text: no summary, never an exception', failures, [undefined, undefined, undefined, undefined]);
+  check('…each with a warning that says why', warnings, [
+    'AI summary skipped: 401 Token exchange failed', 'AI summary skipped: the model stopped with max_tokens',
+    'AI summary skipped: the model stopped with refusal', 'AI summary skipped: the response had no text',
+  ]);
+  const broken = summarizerFromEnv({ ANTHROPIC_API_KEY: 'k' }, warn, () => { throw new Error('bad config'); });
+  check('a client that can\'t be built: no summary, a warning', [broken.summarize, warnings.at(-1)], [undefined, 'AI summary unavailable: bad config']);
+  check('no raw call to the API is left in the digest',
+    readdirSync('src/digest').filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+      .filter((f) => /api\.anthropic\.com|claude-haiku-4-5/.test(readFileSync(`src/digest/${f}`, 'utf8'))), []);
 }
 
 section('settings');

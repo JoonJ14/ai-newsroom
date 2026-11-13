@@ -56,8 +56,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          # Same auth as collect.yml: federation IDs as repository variables,
-          # falling back to the ANTHROPIC_API_KEY secret while they are unset
+          # Same auth as collect.yml: workload identity federation. The
+          # ANTHROPIC_API_KEY secret is for forks without it; this repository has none
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
@@ -76,7 +76,9 @@ jobs:
       contents: read
       # The repeat check (src/digest/repeats.ts): one small Claude call per
       # digest, with the editor's credentials. If it fails, the key rule is
-      # used and the digest still sends.
+      # used and the digest still sends. On a fallback morning the old
+      # ranking's AI summary (src/digest/summary.ts) uses them too, and is
+      # left out if it fails.
       id-token: write
 
     steps:
@@ -97,7 +99,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          # The repeat check: same auth as the editor job above
+          # The repeat check and the fallback's summary: same auth as the editor job above
           ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
           ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
