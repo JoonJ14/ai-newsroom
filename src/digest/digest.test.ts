@@ -15,7 +15,7 @@ import {
 } from '../editor/select.js';
 import { SOURCE_DISPLAY_NAMES } from '../utils/source-names.js';
 import { emptyUsage } from '../editor/client.js';
-import { itemOutlet, knownPublisher } from '../utils/source-names.js';
+import { itemOutlet, knownPublisher, LAB_PUBLISHERS, OFFICIAL_LAB_SOURCES, PUBLISHERS } from '../utils/source-names.js';
 import { buildDigest, EMPTY_INTRO, FOOTER_FALLBACK, NO_STORIES, UPDATE_PREFIX, type ShownStories } from './build.js';
 import {
   checkRepeats, historyEntries, historyFromLegacy, namesIn, parseHistory, pruneHistory, validateVerdicts,
@@ -467,6 +467,56 @@ section('publishers for Hacker News links');
     judged('hackernews_top', { storyKey: 'v' }, { url: 'https://www.ft.com/b', metadata: { coveredBy: [{ source: 'hackernews_top', url: 'https://apnews.com/c' }] } }),
   ];
   check('a publisher also carried directly is listed once; coveredBy HN links named too', storyOutlets(items), ['The Verge', 'Financial Times (via HN)', 'AP (via HN)']);
+}
+
+section('labs\' own sites, linked from Hacker News');
+{
+  const via = (url: string) => itemOutlet('hackernews_top', url).name;
+  check('each lab domain names the lab', [
+    'https://openai.com/index/x', 'https://alignment.openai.com/x', 'https://www.anthropic.com/research/x', 'https://status.claude.com/x',
+    'https://deepmind.google/x', 'https://blog.google/x', 'https://research.google/blog/x', 'https://ai.meta.com/x', 'https://about.fb.com/news/x',
+    'https://www.nvidia.com/x', 'https://developer.nvidia.com/blog/x', 'https://blogs.nvidia.com/x', 'https://nvidia.github.io/x',
+    'https://x.ai/news/x', 'https://mistral.ai/news/x', 'https://cohere.com/blog/x', 'https://microsoft.ai/news/x',
+    'https://machinelearning.apple.com/research/x', 'https://www.aboutamazon.com/news/x', 'https://www.tencent.com/x',
+  ].map(via), [
+    'OpenAI (via HN)', 'OpenAI (via HN)', 'Anthropic (via HN)', 'Anthropic (via HN)',
+    'Google DeepMind (via HN)', 'Google AI (via HN)', 'Google Research (via HN)', 'Meta AI (via HN)', 'Meta AI (via HN)',
+    'NVIDIA (via HN)', 'NVIDIA (via HN)', 'NVIDIA (via HN)', 'NVIDIA (via HN)',
+    'xAI (via HN)', 'Mistral (via HN)', 'Cohere (via HN)', 'Microsoft AI (via HN)',
+    'Apple (via HN)', 'Amazon (via HN)', 'Tencent (via HN)',
+  ]);
+  check('only the exact domain or a subdomain: look-alikes stay bare domains',
+    ['https://notopenai.com/x', 'https://max.ai/x', 'https://podcasts.apple.com/x', 'https://github.io/x'].map(via),
+    ['notopenai.com (via HN)', 'max.ai (via HN)', 'podcasts.apple.com (via HN)', 'github.io (via HN)']);
+  const labNames = new Set([...OFFICIAL_LAB_SOURCES].map((s) => SOURCE_DISPLAY_NAMES[s]));
+  const noDirectSource = ['Mistral', 'Cohere', 'Microsoft AI', 'Apple', 'Amazon', 'Tencent'];
+  check('every lab name is its direct source\'s display name, or the lab has no direct source',
+    Object.values(LAB_PUBLISHERS).filter((n) => !labNames.has(n) && !noDirectSource.includes(n)), []);
+  check('no domain is both a lab and the press', Object.keys(LAB_PUBLISHERS).filter((d) => d in PUBLISHERS), []);
+
+  const once = (source: string, url: string, hnUrl: string) =>
+    storyOutlets([judged(source, { storyKey: 'l' }, { url }), judged('hackernews_top', { storyKey: 'l' }, { url: hnUrl })]);
+  check('a lab carried directly and via HN is listed once', [
+    once('openai_news', 'https://openai.com/index/a', 'https://openai.com/index/a'),
+    once('anthropic_blog', 'https://www.anthropic.com/news/a', 'https://www.anthropic.com/news/a'),
+    once('google_ai_blog', 'https://blog.google/a', 'https://blog.google/a'),
+    once('google_research', 'https://research.google/blog/a', 'https://research.google/blog/a'),
+    once('deepmind_blog', 'https://deepmind.google/a', 'https://deepmind.google/a'),
+    once('meta_ai_blog', 'https://about.fb.com/news/a', 'https://ai.meta.com/a'),
+    once('nvidia_developer_blog', 'https://developer.nvidia.com/blog/a', 'https://blogs.nvidia.com/a'),
+  ], [['OpenAI'], ['Anthropic'], ['Google AI'], ['Google Research'], ['Google DeepMind'], ['Meta AI'], ['NVIDIA']]);
+  check('…also when the HN copy is in coveredBy', storyOutlets([judged('openai_news', { storyKey: 'l' }, {
+    url: 'https://openai.com/index/b', metadata: { coveredBy: [{ source: 'hackernews_top', url: 'https://openai.com/index/b' }] },
+  })]), ['OpenAI']);
+  check('without the direct copy, the lab is named via HN',
+    storyOutlets([judged('techcrunch_ai', { storyKey: 'l' }), judged('hackernews_top', { storyKey: 'l' }, { url: 'https://mistral.ai/news/a' })]),
+    ['TechCrunch', 'Mistral (via HN)']);
+  check('an HN link to a lab\'s site is a strong source: it may lead at 7',
+    keysOf(buildSections(groupStories([judged('hackernews_top', { storyKey: 'm', importance: 7 }, { url: 'https://mistral.ai/news/a' })], DIR)).top), ['m']);
+  check('…and counts as the lab for the per-outlet cap',
+    makeStory('n', [judged('hackernews_top', { storyKey: 'n' }, { url: 'https://openai.com/index/c' })], DIR).leadOutlet, 'OpenAI');
+  check('labs stay subjects for the repeat check, not outlet words',
+    namesIn('OpenAI, Anthropic and Google DeepMind sign NVIDIA and Mistral deal'), ['openai', 'anthropic', 'google', 'deepmind', 'nvidia', 'mistral']);
 }
 
 section('weak sources do not lead');

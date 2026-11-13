@@ -206,8 +206,9 @@ check('stories: the digest path re-exports the shared module',
   ['groupStories', 'orderForLead', 'storyOutlets', 'isStrongCopy', 'rankStories', 'buildSections', 'topEligible', 'makeStory']
     .filter((f) => (nodeStories as Record<string, unknown>)[f] !== (sharedStories as Record<string, unknown>)[f]), []);
 check('names, publishers and source classes', [nodeNames.itemOutlet === sharedNames.itemOutlet,
-  nodeNames.SOURCE_DISPLAY_NAMES === sharedNames.SOURCE_DISPLAY_NAMES, nodeNames.OFFICIAL_LAB_SOURCES === sharedNames.OFFICIAL_LAB_SOURCES],
-  [true, true, true]);
+  nodeNames.SOURCE_DISPLAY_NAMES === sharedNames.SOURCE_DISPLAY_NAMES, nodeNames.OFFICIAL_LAB_SOURCES === sharedNames.OFFICIAL_LAB_SOURCES,
+  nodeNames.LAB_PUBLISHERS === sharedNames.LAB_PUBLISHERS],
+  [true, true, true, true]);
 check('why-line guard and the old ranking', [nodeWhy.chooseWhy === sharedWhy.chooseWhy, nodeSlots.buildSlottedDisplay === sharedSlots.buildSlottedDisplay],
   [true, true]);
 {
@@ -396,6 +397,24 @@ section('list tools — judged stories by importance, unjudged after by score');
   const tc = await handleGetSourceUpdates(sb, { source: 'techcrunch_ai' });
   check('get_source_updates: that source, most important first', tc.items.map((e) => e.importance), [9, 6, 6, 6]);
   check('get_source_updates: empty', (await handleGetSourceUpdates(sb, { source: 'nope' })).text, 'No items found for source "nope".');
+}
+
+section('outlets — a lab\'s own site linked from Hacker News');
+{
+  seq = 100;
+  const sb = fakeClient([
+    row('openai_news', { story_key: 'gpt-8', importance: 9, headline: 'OpenAI launches GPT-8' }, { url: 'https://openai.com/index/gpt-8' }),
+    row('hackernews_top', { story_key: 'gpt-8', importance: 9 }, { url: 'https://openai.com/index/gpt-8', source_category: 'community' }),
+    row('techcrunch_ai', { story_key: 'gpt-8', importance: 8 }, {
+      url: 'https://techcrunch.com/gpt-8', metadata: { coveredBy: [{ source: 'hackernews_top', url: 'https://alignment.openai.com/gpt-8' }] },
+    }),
+    row('hackernews_top', { story_key: 'mistral-deal', importance: 7 }, { url: 'https://mistral.ai/news/deal', source_category: 'community' }),
+  ]);
+  const top = await handleGetTopPicks(sb, {});
+  const outlets = (key: string) => top.sections.flatMap((s) => s.items).find((e) => e.story_key === key)?.outlets;
+  check('carried directly and via HN (a row or a coveredBy copy): listed once, by the lab\'s name', outlets('gpt-8'), ['OpenAI', 'TechCrunch']);
+  check('only via HN: the lab\'s name, not its domain', outlets('mistral-deal'), ['Mistral (via HN)']);
+  check('the list tools say the same', (await handleGetTrending(sb, {})).items.map((e) => e.outlets), [['OpenAI', 'TechCrunch'], ['Mistral (via HN)']]);
 }
 
 // ─── check_status ────────────────────────────────────────────────

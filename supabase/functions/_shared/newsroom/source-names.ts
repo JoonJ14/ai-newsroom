@@ -94,6 +94,9 @@ export function sourceDisplayName(source: string): string {
  * rather than "Hacker News". Names match SOURCE_DISPLAY_NAMES where a
  * publisher is also a direct source, so the two copies can be listed once.
  * A subdomain matches its domain (uk.reuters.com → Reuters).
+ *
+ * The press only: labs are in LAB_PUBLISHERS. The repeat check reads these
+ * names as outlet words, never a story's subject (src/digest/repeats.ts).
  */
 export const PUBLISHERS: Readonly<Record<string, string>> = {
   'reuters.com': 'Reuters',
@@ -135,6 +138,38 @@ export const PUBLISHERS: Readonly<Record<string, string>> = {
   'science.org': 'Science',
 };
 
+/**
+ * Labs by domain, for Hacker News links to a lab's own site: "OpenAI", not
+ * "openai.com (via HN)". A lab with a direct source has that source's name
+ * from SOURCE_DISPLAY_NAMES, so a story it carried directly and HN linked to
+ * is listed once (blog.google is Google AI, research.google Google Research).
+ * A subdomain matches its domain (alignment.openai.com → OpenAI).
+ *
+ * Kept apart from PUBLISHERS on purpose. The repeat check treats PUBLISHERS'
+ * names as outlet words, which are never a story's subject; OpenAI in a
+ * headline is the subject (src/digest/repeats.ts). knownPublisher reads both.
+ */
+export const LAB_PUBLISHERS: Readonly<Record<string, string>> = {
+  'openai.com': 'OpenAI',
+  'anthropic.com': 'Anthropic',
+  'claude.com': 'Anthropic',
+  'deepmind.google': 'Google DeepMind',
+  'blog.google': 'Google AI',
+  'research.google': 'Google Research',
+  'ai.meta.com': 'Meta AI',
+  'about.fb.com': 'Meta AI',
+  'nvidia.com': 'NVIDIA',
+  'nvidia.github.io': 'NVIDIA',
+  'x.ai': 'xAI',
+  'mistral.ai': 'Mistral',
+  // No direct source; seen via HN in the cache (Nov 2026)
+  'cohere.com': 'Cohere',
+  'microsoft.ai': 'Microsoft AI',
+  'machinelearning.apple.com': 'Apple',
+  'aboutamazon.com': 'Amazon',
+  'tencent.com': 'Tencent',
+};
+
 /** The URL's host without "www.", lowercased; '' if it isn't a URL. */
 export function urlHost(url: string): string {
   try {
@@ -144,11 +179,12 @@ export function urlHost(url: string): string {
   }
 }
 
-/** The publisher's name for a URL, if its domain is a known one. */
+/** The publisher's name for a URL, if its domain is a known one: a lab's or the press's. */
 export function knownPublisher(url: string): string | undefined {
   const host = urlHost(url);
   for (let h = host; h.includes('.'); h = h.slice(h.indexOf('.') + 1)) {
-    if (PUBLISHERS[h]) return PUBLISHERS[h];
+    const name = LAB_PUBLISHERS[h] ?? PUBLISHERS[h];
+    if (name) return name;
   }
   return undefined;
 }
