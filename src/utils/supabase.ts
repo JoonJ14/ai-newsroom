@@ -208,3 +208,14 @@ export async function deleteLowImportanceItems(rule: LowImportanceRule, now: Dat
   log.info(`Deleted ${deleted} items rated ${rule.maxImportance} or lower, older than ${rule.days} days`);
   return deleted;
 }
+
+/**
+ * Both retention rules, with one captured time: `npm run cleanup` and the end
+ * of `npm run collect` run this. `rule` null means the low-importance rule is
+ * switched off (lowImportanceRule in src/utils/retention.ts).
+ */
+export async function applyRetention(rule: LowImportanceRule | null, now: Date = new Date()): Promise<{ old: number; low: number }> {
+  const old = await deleteOldItems(RETENTION_DAYS, now);
+  const low = rule ? await deleteLowImportanceItems(rule, now) : 0;
+  return { old, low };
+}

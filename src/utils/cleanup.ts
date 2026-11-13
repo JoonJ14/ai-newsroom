@@ -4,13 +4,14 @@
  * rated 2 or lower fetched more than 14 days ago. Unjudged items keep the 90
  * days. Both numbers of the second rule are settings (src/utils/retention.ts):
  * CLEANUP_LOW_IMPORTANCE_MAX (0 switches the rule off) and
- * CLEANUP_LOW_IMPORTANCE_DAYS.
+ * CLEANUP_LOW_IMPORTANCE_DAYS. `npm run collect` applies the same rules when
+ * it finishes, with the same settings.
  *
  * Usage: npm run cleanup
  */
 
 import 'dotenv/config';
-import { deleteLowImportanceItems, deleteOldItems } from './supabase.js';
+import { applyRetention } from './supabase.js';
 import { createLogger } from './logger.js';
 import { lowImportanceRule, RETENTION_DAYS } from './retention.js';
 
@@ -27,10 +28,7 @@ async function main() {
   for (const w of warnings) annotate(w);
 
   log.info('Running cleanup...');
-  // One captured time for both rules
-  const now = new Date();
-  const old = await deleteOldItems(RETENTION_DAYS, now);
-  const low = rule ? await deleteLowImportanceItems(rule, now) : 0;
+  const { old, low } = await applyRetention(rule);
   log.info(
     `Cleanup complete: removed ${old} items older than ${RETENTION_DAYS} days, ` +
       (rule

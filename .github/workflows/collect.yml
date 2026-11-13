@@ -27,6 +27,12 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The retention settings (src/utils/retention.ts), for both steps below:
+    # the collector applies the same rules when it finishes. Optional
+    # repository variables; unset means 2 and 14 days, 0 switches the rule off.
+    env:
+      CLEANUP_LOW_IMPORTANCE_MAX: ${{ vars.CLEANUP_LOW_IMPORTANCE_MAX }}
+      CLEANUP_LOW_IMPORTANCE_DAYS: ${{ vars.CLEANUP_LOW_IMPORTANCE_DAYS }}
 
     steps:
       - name: Checkout repository
@@ -53,14 +59,12 @@ jobs:
         run: npm run collect
 
       # Every row after 90 days; rows the editor rated 2 or lower after 14
-      # (src/utils/retention.ts). Unjudged rows keep the 90 days.
+      # (src/utils/retention.ts). Unjudged rows keep the 90 days. Unlike the
+      # collector's own pass, a failure here fails the step.
       - name: Cleanup old and low-rated items
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          # Optional repository variables; unset means 2 and 14 days, 0 switches the rule off
-          CLEANUP_LOW_IMPORTANCE_MAX: ${{ vars.CLEANUP_LOW_IMPORTANCE_MAX }}
-          CLEANUP_LOW_IMPORTANCE_DAYS: ${{ vars.CLEANUP_LOW_IMPORTANCE_DAYS }}
         run: npm run cleanup
 
   # The AI editor judges what collection just stored (src/editor/, docs/editor.md).

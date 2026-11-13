@@ -13,7 +13,8 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYAML } from 'yaml';
 import { createLogger } from '../utils/logger.js';
-import { upsertNewsItems, deleteOldItems } from '../utils/supabase.js';
+import { upsertNewsItems, applyRetention } from '../utils/supabase.js';
+import { lowImportanceRule, RETENTION_DAYS } from '../utils/retention.js';
 import { collectRSS } from './rss.js';
 import { collectReddit } from './reddit.js';
 import { collectHackerNews, collectHackerNewsAlgolia } from './hackernews.js';
@@ -279,10 +280,16 @@ async function main() {
     }
   }
 
-  // Cleanup old items
+  // Cleanup: the same retention rules and settings as `npm run cleanup`
+  // (src/utils/retention.ts). A failure is logged and doesn't fail the run.
   try {
-    const deleted = await deleteOldItems(90);
-    log.info(`Cleanup: removed ${deleted} items older than 90 days`);
+    const { rule, warnings } = lowImportanceRule(process.env);
+    for (const w of warnings) log.warn(w);
+    const { old, low } = await applyRetention(rule);
+    log.info(
+      `Cleanup: removed ${old} items older than ${RETENTION_DAYS} days` +
+        (rule ? ` and ${low} rated ${rule.maxImportance} or lower older than ${rule.days} days` : ''),
+    );
   } catch (err) {
     log.error('Cleanup failed', (err as Error).message);
   }
