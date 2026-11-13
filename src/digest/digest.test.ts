@@ -32,7 +32,7 @@ import {
 } from './render.js';
 import { runDigest } from './run.js';
 import { parseShown, type DigestStore } from './store.js';
-import { apiSummarizer, summarizerFromEnv, SUMMARY_MAX_TOKENS, type MessagesClient } from './summary.js';
+import { apiSummarizer, summarizerFromEnv, SUMMARY_MAX_CHARS, SUMMARY_MAX_TOKENS, type MessagesClient } from './summary.js';
 import { sendSlackDigest } from './adapters/slack.js';
 import { sendTelegramDigest } from './adapters/telegram.js';
 import { sendDiscordDigest } from './adapters/discord.js';
@@ -611,7 +611,7 @@ section('fallback');
   check('only the fallback asks for the AI summary', summarized, 1);
   const noSummary = await buildDigest({ ...base, items: mostlyUnjudged, editorColumns: true, summarize: async () => undefined });
   check('no summary (skipped or failed): the fallback digest is still built, without an intro',
-    [noSummary.mode, noSummary.doc.intro, noSummary.doc.sections.length > 0], ['fallback', undefined, true]);
+    [noSummary.mode, typeof noSummary.doc.intro, noSummary.doc.sections.length > 0], ['fallback', 'undefined', true]);
 }
 
 section('fallback — the AI summary uses the editor\'s client');
@@ -635,7 +635,7 @@ section('fallback — the AI summary uses the editor\'s client');
     modes.push(mode);
     return client;
   };
-  check('no credentials: no summary', [summarizerFromEnv({}, warn).summarize, summarizerFromEnv({}, warn).auth], [undefined, 'no credentials']);
+  check('no credentials: no summary', [typeof summarizerFromEnv({}, warn).summarize, summarizerFromEnv({}, warn).auth], ['undefined', 'no credentials']);
   const ok = fake(() => answer('  Two labs shipped models.  '));
   const viaKey = summarizerFromEnv({ ANTHROPIC_API_KEY: 'k' }, warn, factory(ok.client));
   const viaFederation = summarizerFromEnv({
@@ -664,14 +664,21 @@ section('fallback — the AI summary uses the editor\'s client');
     () => answer('Two labs', 'max_tokens'),
     () => answer('', 'refusal'),
     () => answer('   '),
+    () => answer(`${'A long sentence about AI. '.repeat(40)}`),
   ]) failures.push(await apiSummarizer(fake(reply).client, 'm', warn)(items));
-  check('an error, a cut-off answer, a refusal or no text: no summary, never an exception', failures, [undefined, undefined, undefined, undefined]);
+  check('an error, a cut-off answer, a refusal, no text or too long: no summary, never an exception',
+    failures.map((f) => typeof f), ['undefined', 'undefined', 'undefined', 'undefined', 'undefined']);
   check('…each with a warning that says why', warnings, [
     'AI summary skipped: 401 Token exchange failed', 'AI summary skipped: the model stopped with max_tokens',
     'AI summary skipped: the model stopped with refusal', 'AI summary skipped: the response had no text',
+    `AI summary skipped: ${'A long sentence about AI. '.repeat(40).trim().length} characters, over the ${SUMMARY_MAX_CHARS} a Discord message's intro can take`,
   ]);
+  const longest = await apiSummarizer(fake(() => answer('x'.repeat(SUMMARY_MAX_CHARS))).client, 'm', warn)(items);
+  check('at the limit it is kept; escaped, with the header, it still fits a Discord message',
+    [longest?.length, discordPayloads({ date: NOW, intro: '*'.repeat(SUMMARY_MAX_CHARS), sections: [], footer: 'f' }, 'plain')
+      .every((p) => p.content!.length <= DISCORD_LIMITS.content)], [SUMMARY_MAX_CHARS, true]);
   const broken = summarizerFromEnv({ ANTHROPIC_API_KEY: 'k' }, warn, () => { throw new Error('bad config'); });
-  check('a client that can\'t be built: no summary, a warning', [broken.summarize, warnings.at(-1)], [undefined, 'AI summary unavailable: bad config']);
+  check('a client that can\'t be built: no summary, a warning', [typeof broken.summarize, warnings.at(-1)], ['undefined', 'AI summary unavailable: bad config']);
   check('no raw call to the API is left in the digest',
     readdirSync('src/digest').filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
       .filter((f) => /api\.anthropic\.com|claude-haiku-4-5/.test(readFileSync(`src/digest/${f}`, 'utf8'))), []);

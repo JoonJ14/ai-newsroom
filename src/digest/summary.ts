@@ -28,6 +28,13 @@ export const SUMMARY_TIMEOUT_MS = 30_000;
 export const SUMMARY_MAX_RETRIES = 1;
 /** The old ranking's top items it reads, as before. */
 export const SUMMARY_ITEMS = 30;
+/**
+ * The longest summary kept. The intro goes in the first Discord message whole
+ * (render.ts doesn't split a block), and escaping can double its length, so
+ * 800 characters plus the header stay under Discord's 2,000. Two or three
+ * sentences are about 300–500; the old 200-token cap allowed about as much.
+ */
+export const SUMMARY_MAX_CHARS = 800;
 
 export type Summarize = (items: NewsItem[]) => Promise<string | undefined>;
 type Env = Record<string, string | undefined>;
@@ -67,6 +74,10 @@ export function apiSummarizer(client: MessagesClient, model: string, warn: Warn)
       const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
       if (!text) {
         warn('AI summary skipped: the response had no text');
+        return undefined;
+      }
+      if (text.length > SUMMARY_MAX_CHARS) {
+        warn(`AI summary skipped: ${text.length} characters, over the ${SUMMARY_MAX_CHARS} a Discord message's intro can take`);
         return undefined;
       }
       return text;
