@@ -165,8 +165,8 @@ export function scrapeAnthropicListing(html: string, source: SourceConfig, pageU
     const card = cardOf($, $time);
     if (!card) return;
     const { $card, $title } = card;
-    // The date's own line: category label(s) and the date. Never the URL or the summary.
-    const meta = timeEl.parent;
+    // The date's own line: category label(s) and the date. Never the title, URL or summary.
+    const meta = dateLineOf($, $time);
     const outsideMeta = (el: AnyNode) => !meta || (el !== meta && !$.contains(meta, el));
 
     const href =
@@ -230,12 +230,24 @@ const TITLE_CLASSES = '[class*="__title"], [class*="Title"], [class*="-title"]';
 const MAX_CARD_DEPTH = 8;
 
 /**
+ * The date's own line: the element around the `<time>` that holds its
+ * category label(s), as a card's `<header>` does. None when that element is
+ * the card itself: a link, or one holding a heading (an old card could be
+ * `<a><time/><h4/></a>`, its date and title side by side).
+ */
+function dateLineOf($: cheerio.CheerioAPI, $time: cheerio.Cheerio<AnyNode>): AnyNode | undefined {
+  const $parent = $time.parent();
+  if (!$parent.length || $parent.is('a, main, body') || $parent.find(HEADINGS).length) return undefined;
+  return $parent[0];
+}
+
+/**
  * The card a `<time>` belongs to, and its title element; none if it isn't a
  * single card's date. The title is never in the date's own line, so a
  * category label styled as a title (`category-title`) can't stand in for it.
  */
 function cardOf($: cheerio.CheerioAPI, $time: cheerio.Cheerio<AnyNode>) {
-  const meta = $time.parent()[0];
+  const meta = dateLineOf($, $time);
   const outsideMeta = (_i: number, el: AnyNode) => !meta || (el !== meta && !$.contains(meta, el));
   let $c = $time.parent();
   for (let depth = 0; depth < MAX_CARD_DEPTH && $c.length && !$c.is('main, body'); depth++, $c = $c.parent()) {

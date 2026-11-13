@@ -394,6 +394,13 @@ section('scrapeAnthropicListing — the layout since about Oct 19, 2026 (fixture
   </article></main>`, SOURCE, 'https://www.anthropic.com/news');
   check('a category styled as a title, in the date\'s line, is never taken for the title or the URL',
     styled.map((i) => `${i.title} ${i.url}`), ['Anthropic launches roadshow https://www.anthropic.com/news/roadshow-launch']);
+  const direct = scrapeAnthropicListing(`<main>
+    <a href="/news/side-by-side"><time>Oct 9, 2026</time><h4>Date and title side by side</h4><p>Its summary.</p></a>
+    <div><time>Oct 8, 2026</time><h4>Not in a link, title beside the date</h4><a href="/news/beside">Read more</a></div>
+  </main>`, SOURCE, 'https://www.anthropic.com/news');
+  check('a date and title side by side in one element (the card itself) still parse',
+    direct.map((i) => `${i.url.replace('https://www.anthropic.com', '')} ${i.title} ${i.summary ?? '-'}`),
+    ['/news/side-by-side Date and title side by side Its summary.', '/news/beside Not in a link, title beside the date -']);
   check('only web pages on anthropic.com: javascript: and data: links are skipped, whatever their host',
     schemes.map((i) => i.url), ['http://www.anthropic.com/news/plain-http']);
 }
