@@ -416,6 +416,8 @@ section('a listing page that loads but gives no posts — a loud warning, never 
     emptyListingWarning('Anthropic News', 'https://www.anthropic.com/news', big, 0),
     `Anthropic News: https://www.anthropic.com/news loaded (${big.length} characters) but no posts were found on it. ` +
       'The page layout may have changed; check its scraper in src/collectors/scraper.ts.');
+  check('the size boundary: 999 characters is too small to judge, 1,000 is not',
+    [typeof emptyListingWarning('S', 'u', 'x'.repeat(999), 0), typeof emptyListingWarning('S', 'u', 'x'.repeat(1000), 0)], ['undefined', 'string']);
   check('posts found, or a page too small to judge: no warning',
     [typeof emptyListingWarning('S', 'u', big, 3), typeof emptyListingWarning('S', 'u', '<html></html>', 0)], ['undefined', 'undefined']);
 
