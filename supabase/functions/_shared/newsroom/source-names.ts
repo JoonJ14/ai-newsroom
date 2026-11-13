@@ -145,9 +145,12 @@ export const PUBLISHERS: Readonly<Record<string, string>> = {
  * is listed once (blog.google is Google AI, research.google Google Research).
  * A subdomain matches its domain (alignment.openai.com → OpenAI).
  *
- * Kept apart from PUBLISHERS on purpose. The repeat check treats PUBLISHERS'
- * names as outlet words, which are never a story's subject; OpenAI in a
- * headline is the subject (src/digest/repeats.ts). knownPublisher reads both.
+ * Naming only (docs/DECISIONS.md, DEC-021), and kept apart from PUBLISHERS:
+ * - The repeat check treats PUBLISHERS' names as outlet words, never a story's
+ *   subject; OpenAI in a headline is the subject (src/digest/repeats.ts).
+ * - PUBLISHERS decides strong sources and the per-outlet cap. A lab's site via
+ *   HN counts there as before, as its bare domain (capOutlet, isStrongCopy),
+ *   until the owner decides it should count as the lab.
  */
 export const LAB_PUBLISHERS: Readonly<Record<string, string>> = {
   'openai.com': 'OpenAI',
@@ -179,14 +182,23 @@ export function urlHost(url: string): string {
   }
 }
 
-/** The publisher's name for a URL, if its domain is a known one: a lab's or the press's. */
-export function knownPublisher(url: string): string | undefined {
+/** The name a domain map gives a URL's host or, failing that, one of its parent domains. */
+function lookupDomain(map: Readonly<Record<string, string>>, url: string): string | undefined {
   const host = urlHost(url);
   for (let h = host; h.includes('.'); h = h.slice(h.indexOf('.') + 1)) {
-    const name = LAB_PUBLISHERS[h] ?? PUBLISHERS[h];
-    if (name) return name;
+    if (map[h]) return map[h];
   }
   return undefined;
+}
+
+/** The publisher's name for a URL, if its domain is a known publisher (the press, PUBLISHERS). */
+export function knownPublisher(url: string): string | undefined {
+  return lookupDomain(PUBLISHERS, url);
+}
+
+/** The lab's name for a URL on a lab's own site (LAB_PUBLISHERS). */
+export function knownLab(url: string): string | undefined {
+  return lookupDomain(LAB_PUBLISHERS, url);
 }
 
 /** Sources whose items are Hacker News stories: their URL is usually someone else's article. */
@@ -194,17 +206,28 @@ const HN_SOURCES = new Set(['hackernews_top']);
 
 /**
  * Who an item's reader should credit. A Hacker News link to an external
- * article names the publisher, "Reuters (via HN)", or the bare domain when
- * the publisher isn't known. HN text posts (news.ycombinator.com) stay
- * "Hacker News", and Show HN items, which link to the project itself, stay
- * "Show HN". Every other source is its display name.
+ * article names the lab whose site it is, "OpenAI (via HN)", or the publisher,
+ * "Reuters (via HN)", or the bare domain when neither is known. HN text posts
+ * (news.ycombinator.com) stay "Hacker News", and Show HN items, which link to
+ * the project itself, stay "Show HN". Every other source is its display name.
  */
 export function itemOutlet(source: string, url: string): { name: string; publisher: string; viaHN: boolean } {
   const host = urlHost(url);
   if (HN_SOURCES.has(source) && host && host !== 'news.ycombinator.com') {
-    const publisher = knownPublisher(url) ?? host;
+    const publisher = knownLab(url) ?? knownPublisher(url) ?? host;
     return { name: `${publisher} (via HN)`, publisher, viaHN: true };
   }
   const name = sourceDisplayName(source);
   return { name, publisher: name, viaHN: false };
+}
+
+/**
+ * The outlet an item counts as for the per-outlet cap: itemOutlet's
+ * publisher ("Reuters (via HN)" counts as Reuters), except that a lab's own
+ * site via HN counts as its bare domain, as it did before labs were named
+ * (DEC-021). Naming the lab changes how outlets read, not the ranking.
+ */
+export function capOutlet(source: string, url: string): string {
+  const outlet = itemOutlet(source, url);
+  return outlet.viaHN && knownLab(url) !== undefined ? urlHost(url) : outlet.publisher;
 }

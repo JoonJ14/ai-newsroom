@@ -207,8 +207,8 @@ check('stories: the digest path re-exports the shared module',
     .filter((f) => (nodeStories as Record<string, unknown>)[f] !== (sharedStories as Record<string, unknown>)[f]), []);
 check('names, publishers and source classes', [nodeNames.itemOutlet === sharedNames.itemOutlet,
   nodeNames.SOURCE_DISPLAY_NAMES === sharedNames.SOURCE_DISPLAY_NAMES, nodeNames.OFFICIAL_LAB_SOURCES === sharedNames.OFFICIAL_LAB_SOURCES,
-  nodeNames.LAB_PUBLISHERS === sharedNames.LAB_PUBLISHERS],
-  [true, true, true, true]);
+  nodeNames.LAB_PUBLISHERS === sharedNames.LAB_PUBLISHERS, nodeNames.capOutlet === sharedNames.capOutlet],
+  [true, true, true, true, true]);
 check('why-line guard and the old ranking', [nodeWhy.chooseWhy === sharedWhy.chooseWhy, nodeSlots.buildSlottedDisplay === sharedSlots.buildSlottedDisplay],
   [true, true]);
 {
@@ -414,6 +414,9 @@ section('outlets — a lab\'s own site linked from Hacker News');
   const outlets = (key: string) => top.sections.flatMap((s) => s.items).find((e) => e.story_key === key)?.outlets;
   check('carried directly and via HN (a row or a coveredBy copy): listed once, by the lab\'s name', outlets('gpt-8'), ['OpenAI', 'TechCrunch']);
   check('only via HN: the lab\'s name, not its domain', outlets('mistral-deal'), ['Mistral (via HN)']);
+  check('naming only: a lab\'s site via HN isn\'t a strong source yet, so at 7 it is also notable, not a top story',
+    [top.sections[0].items.some((e) => e.story_key === 'mistral-deal'), top.sections[1].items.some((e) => e.story_key === 'mistral-deal')],
+    [false, true]);
   check('the list tools say the same', (await handleGetTrending(sb, {})).items.map((e) => e.outlets), [['OpenAI', 'TechCrunch'], ['Mistral (via HN)']]);
 }
 

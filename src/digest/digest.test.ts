@@ -16,7 +16,9 @@ import {
 } from '../editor/select.js';
 import { SOURCE_DISPLAY_NAMES } from '../utils/source-names.js';
 import { emptyUsage } from '../editor/client.js';
-import { itemOutlet, knownPublisher, LAB_PUBLISHERS, OFFICIAL_LAB_SOURCES, PUBLISHERS } from '../utils/source-names.js';
+import {
+  capOutlet, itemOutlet, knownLab, knownPublisher, LAB_PUBLISHERS, OFFICIAL_LAB_SOURCES, PUBLISHERS,
+} from '../utils/source-names.js';
 import { buildDigest, EMPTY_INTRO, FOOTER_FALLBACK, NO_STORIES, UPDATE_PREFIX, type ShownStories } from './build.js';
 import {
   checkRepeats, historyEntries, historyFromLegacy, namesIn, parseHistory, pruneHistory, validateVerdicts,
@@ -513,10 +515,18 @@ section('labs\' own sites, linked from Hacker News');
   check('without the direct copy, the lab is named via HN',
     storyOutlets([judged('techcrunch_ai', { storyKey: 'l' }), judged('hackernews_top', { storyKey: 'l' }, { url: 'https://mistral.ai/news/a' })]),
     ['TechCrunch', 'Mistral (via HN)']);
-  check('an HN link to a lab\'s site is a strong source: it may lead at 7',
-    keysOf(buildSections(groupStories([judged('hackernews_top', { storyKey: 'm', importance: 7 }, { url: 'https://mistral.ai/news/a' })], DIR)).top), ['m']);
-  check('…and counts as the lab for the per-outlet cap',
-    makeStory('n', [judged('hackernews_top', { storyKey: 'n' }, { url: 'https://openai.com/index/c' })], DIR).leadOutlet, 'OpenAI');
+  // Naming only (DEC-021): the ranking is as before until the owner decides otherwise
+  const viaHnOnly = buildSections(groupStories([judged('hackernews_top', { storyKey: 'm', importance: 7 }, { url: 'https://mistral.ai/news/a' })], DIR));
+  check('a lab\'s site via HN is not a strong source yet: at 7 it is also notable, not a top story, as before',
+    [keysOf(viaHnOnly.top), keysOf(viaHnOnly.alsoNotable)], [[], ['m']]);
+  check('…and counts as its domain for the per-outlet cap, as before', [
+    makeStory('n', [judged('hackernews_top', { storyKey: 'n' }, { url: 'https://www.openai.com/index/c' })], DIR).leadOutlet,
+    capOutlet('hackernews_top', 'https://alignment.openai.com/x'), capOutlet('hackernews_top', 'https://www.reuters.com/x'),
+    capOutlet('openai_news', 'https://openai.com/index/c'),
+  ], ['openai.com', 'alignment.openai.com', 'Reuters', 'OpenAI']);
+  check('knownPublisher is the press only; knownLab the labs',
+    [knownPublisher('https://openai.com/x'), knownLab('https://openai.com/x'), knownPublisher('https://reuters.com/x'), knownLab('https://reuters.com/x')],
+    [undefined, 'OpenAI', 'Reuters', undefined]);
   check('labs stay subjects for the repeat check, not outlet words',
     namesIn('OpenAI, Anthropic and Google DeepMind sign NVIDIA and Mistral deal'), ['openai', 'anthropic', 'google', 'deepmind', 'nvidia', 'mistral']);
 }

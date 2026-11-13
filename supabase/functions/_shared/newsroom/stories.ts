@@ -8,7 +8,7 @@
  */
 
 import {
-  itemOutlet, knownPublisher, OFFICIAL_LAB_SOURCES, PAPER_SOURCES, PRESS_SOURCES, sourceDisplayName,
+  capOutlet, itemOutlet, knownPublisher, OFFICIAL_LAB_SOURCES, PAPER_SOURCES, PRESS_SOURCES, sourceDisplayName,
 } from './source-names.ts';
 import type { Audience, Coverage, ItemJudgment, NewsItem } from './types.ts';
 
@@ -29,12 +29,16 @@ export interface Story {
   outlets: string[];
   /** One of its items is a genuine new development on an earlier story. */
   followup: boolean;
-  /** The lead's outlet for per-outlet caps: the publisher, so "Reuters (via HN)" counts as Reuters. */
+  /**
+   * The lead's outlet for per-outlet caps (capOutlet): the publisher, so
+   * "Reuters (via HN)" counts as Reuters. A lab's site via HN counts as its domain.
+   */
   leadOutlet: string;
   /**
    * Carried by at least one source a reader can trust to lead the digest: an
    * official lab, a wire service, the tier-1/2 press, or an HN link to a known
-   * publisher. Counts the copies in coveredBy too.
+   * publisher (the press; a lab's own site via HN doesn't count yet, DEC-021).
+   * Counts the copies in coveredBy too.
    */
   strongSource: boolean;
   /** Set when the story continues one already shown (src/digest/repeats.ts). */
@@ -164,7 +168,7 @@ export function makeStory(key: string, items: JudgedItem[], dir: SourceDirectory
     importance: Math.max(...sorted.map((i) => i.judgment.importance)),
     outlets: storyOutlets(sorted),
     followup: sorted.some((i) => i.judgment.followup),
-    leadOutlet: itemOutlet(sorted[0].source, sorted[0].url).publisher,
+    leadOutlet: capOutlet(sorted[0].source, sorted[0].url),
     strongSource: copiesOf(sorted).some((c) => isStrongCopy(c, dir)),
     ...(update ? { update } : {}),
   };
