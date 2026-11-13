@@ -8,7 +8,8 @@
  */
 
 import {
-  capOutlet, itemOutlet, knownPublisher, OFFICIAL_LAB_SOURCES, PAPER_SOURCES, PRESS_SOURCES, sourceDisplayName,
+  itemOutlet, knownPublisher, OFFICIAL_LAB_SOURCES, PAPER_SOURCES, PRESS_SOURCES, rankingOutlet, sourceDisplayName,
+  type Outlet,
 } from './source-names.ts';
 import type { Audience, Coverage, ItemJudgment, NewsItem } from './types.ts';
 
@@ -27,10 +28,16 @@ export interface Story {
   importance: number;
   /** Display names of every outlet that carried it: its rows' sources and their coveredBy. */
   outlets: string[];
+  /**
+   * How many outlets carried it, as the ranking counts them (rankingOutlet): a
+   * lab's own post and an HN link to the lab's site are two, as before labs
+   * were named (DEC-021), though `outlets` lists them once. rankStories' tiebreak.
+   */
+  breadth: number;
   /** One of its items is a genuine new development on an earlier story. */
   followup: boolean;
   /**
-   * The lead's outlet for per-outlet caps (capOutlet): the publisher, so
+   * The lead's outlet for per-outlet caps (rankingOutlet): the publisher, so
    * "Reuters (via HN)" counts as Reuters. A lab's site via HN counts as its domain.
    */
   leadOutlet: string;
@@ -139,11 +146,15 @@ function copiesOf(items: NewsItem[]): { source: string; url: string }[] {
 
 /**
  * Outlet names in order of preference, once each. An HN link names its
- * publisher ("The Guardian (via HN)"), and is dropped when that publisher
- * also carried the story directly.
+ * publisher ("The Guardian (via HN)") or lab ("OpenAI (via HN)"), and is
+ * dropped when that publisher or lab also carried the story directly.
+ * `outletOf` is itemOutlet for readers; Story.breadth counts with rankingOutlet.
  */
-export function storyOutlets(items: NewsItem[]): string[] {
-  const copies = copiesOf(items).map((c) => itemOutlet(c.source, c.url));
+export function storyOutlets(
+  items: NewsItem[],
+  outletOf: (source: string, url: string) => Outlet = itemOutlet,
+): string[] {
+  const copies = copiesOf(items).map((c) => outletOf(c.source, c.url));
   const direct = new Set(copies.filter((c) => !c.viaHN).map((c) => c.publisher));
   const names: string[] = [];
   for (const c of copies) {
@@ -156,7 +167,7 @@ export function storyOutlets(items: NewsItem[]): string[] {
 /** A copy from a source that can lead the digest (see Story.strongSource). */
 export function isStrongCopy(copy: { source: string; url: string }, dir: SourceDirectory): boolean {
   if (OFFICIAL_LAB_SOURCES.has(copy.source) || isWireUrl(copy.url) || dir.isPress(copy.source)) return true;
-  return itemOutlet(copy.source, copy.url).viaHN && knownPublisher(copy.url) !== undefined;
+  return rankingOutlet(copy.source, copy.url).viaHN && knownPublisher(copy.url) !== undefined;
 }
 
 export function makeStory(key: string, items: JudgedItem[], dir: SourceDirectory, update?: StoryUpdate): Story {
@@ -167,8 +178,9 @@ export function makeStory(key: string, items: JudgedItem[], dir: SourceDirectory
     items: sorted,
     importance: Math.max(...sorted.map((i) => i.judgment.importance)),
     outlets: storyOutlets(sorted),
+    breadth: storyOutlets(sorted, rankingOutlet).length,
     followup: sorted.some((i) => i.judgment.followup),
-    leadOutlet: capOutlet(sorted[0].source, sorted[0].url),
+    leadOutlet: rankingOutlet(sorted[0].source, sorted[0].url).publisher,
     strongSource: copiesOf(sorted).some((c) => isStrongCopy(c, dir)),
     ...(update ? { update } : {}),
   };
@@ -190,7 +202,7 @@ export function rankStories(stories: Story[]): Story[] {
   return [...stories].sort(
     (a, b) =>
       b.importance - a.importance ||
-      b.outlets.length - a.outlets.length ||
+      b.breadth - a.breadth ||
       latest(b).localeCompare(latest(a)) ||
       a.key.localeCompare(b.key),
   );

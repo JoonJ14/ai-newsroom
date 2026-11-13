@@ -12,12 +12,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import type { NewsItem } from '../collectors/types.js';
 import { loadSources, type StoredItem } from '../editor/db.js';
 import {
-  buildSections, groupStories, isWireUrl, makeStory, sourceClass, sourceDirectory, storyOutlets, type JudgedItem,
+  buildSections, groupStories, isWireUrl, makeStory, rankStories, sourceClass, sourceDirectory, storyOutlets, type JudgedItem,
 } from '../editor/select.js';
 import { SOURCE_DISPLAY_NAMES } from '../utils/source-names.js';
 import { emptyUsage } from '../editor/client.js';
 import {
-  capOutlet, itemOutlet, knownLab, knownPublisher, LAB_PUBLISHERS, OFFICIAL_LAB_SOURCES, PUBLISHERS,
+  itemOutlet, knownLab, knownPublisher, LAB_PUBLISHERS, OFFICIAL_LAB_SOURCES, PUBLISHERS, rankingOutlet,
 } from '../utils/source-names.js';
 import { buildDigest, EMPTY_INTRO, FOOTER_FALLBACK, NO_STORIES, UPDATE_PREFIX, type ShownStories } from './build.js';
 import {
@@ -519,11 +519,20 @@ section('labs\' own sites, linked from Hacker News');
   const viaHnOnly = buildSections(groupStories([judged('hackernews_top', { storyKey: 'm', importance: 7 }, { url: 'https://mistral.ai/news/a' })], DIR));
   check('a lab\'s site via HN is not a strong source yet: at 7 it is also notable, not a top story, as before',
     [keysOf(viaHnOnly.top), keysOf(viaHnOnly.alsoNotable)], [[], ['m']]);
+  const pub = (source: string, url: string) => rankingOutlet(source, url).publisher;
   check('…and counts as its domain for the per-outlet cap, as before', [
     makeStory('n', [judged('hackernews_top', { storyKey: 'n' }, { url: 'https://www.openai.com/index/c' })], DIR).leadOutlet,
-    capOutlet('hackernews_top', 'https://alignment.openai.com/x'), capOutlet('hackernews_top', 'https://www.reuters.com/x'),
-    capOutlet('openai_news', 'https://openai.com/index/c'),
+    pub('hackernews_top', 'https://alignment.openai.com/x'), pub('hackernews_top', 'https://www.reuters.com/x'),
+    pub('openai_news', 'https://openai.com/index/c'),
   ], ['openai.com', 'alignment.openai.com', 'Reuters', 'OpenAI']);
+  // Equal importance: the tiebreak is how widely carried, then recency. The OpenAI story is
+  // listed with one outlet now but still counts two, so it stays ahead of the newer one-outlet story.
+  const both = makeStory('both', [judged('openai_news', { storyKey: 'both', importance: 6 }, { url: 'https://openai.com/index/d' }),
+    judged('hackernews_top', { storyKey: 'both', importance: 6 }, { url: 'https://openai.com/index/d' })], DIR);
+  const newer = makeStory('newer', [judged('wired_ai', { storyKey: 'newer', importance: 6 },
+    { publishedAt: '2026-10-17T12:00:00.000Z', fetchedAt: '2026-10-17T12:30:00.000Z' })], DIR);
+  check('…and still counts as a second outlet for the "widely carried" tiebreak, as before',
+    [both.outlets, both.breadth, keysOf(rankStories([newer, both]))], [['OpenAI'], 2, ['both', 'newer']]);
   check('knownPublisher is the press only; knownLab the labs',
     [knownPublisher('https://openai.com/x'), knownLab('https://openai.com/x'), knownPublisher('https://reuters.com/x'), knownLab('https://reuters.com/x')],
     [undefined, 'OpenAI', 'Reuters', undefined]);

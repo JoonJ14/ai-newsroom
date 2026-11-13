@@ -207,7 +207,7 @@ check('stories: the digest path re-exports the shared module',
     .filter((f) => (nodeStories as Record<string, unknown>)[f] !== (sharedStories as Record<string, unknown>)[f]), []);
 check('names, publishers and source classes', [nodeNames.itemOutlet === sharedNames.itemOutlet,
   nodeNames.SOURCE_DISPLAY_NAMES === sharedNames.SOURCE_DISPLAY_NAMES, nodeNames.OFFICIAL_LAB_SOURCES === sharedNames.OFFICIAL_LAB_SOURCES,
-  nodeNames.LAB_PUBLISHERS === sharedNames.LAB_PUBLISHERS, nodeNames.capOutlet === sharedNames.capOutlet],
+  nodeNames.LAB_PUBLISHERS === sharedNames.LAB_PUBLISHERS, nodeNames.rankingOutlet === sharedNames.rankingOutlet],
   [true, true, true, true, true]);
 check('why-line guard and the old ranking', [nodeWhy.chooseWhy === sharedWhy.chooseWhy, nodeSlots.buildSlottedDisplay === sharedSlots.buildSlottedDisplay],
   [true, true]);

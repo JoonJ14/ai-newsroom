@@ -148,9 +148,9 @@ export const PUBLISHERS: Readonly<Record<string, string>> = {
  * Naming only (docs/DECISIONS.md, DEC-021), and kept apart from PUBLISHERS:
  * - The repeat check treats PUBLISHERS' names as outlet words, never a story's
  *   subject; OpenAI in a headline is the subject (src/digest/repeats.ts).
- * - PUBLISHERS decides strong sources and the per-outlet cap. A lab's site via
- *   HN counts there as before, as its bare domain (capOutlet, isStrongCopy),
- *   until the owner decides it should count as the lab.
+ * - The ranking (strong sources, the per-outlet cap, how widely a story was
+ *   carried) reads rankingOutlet, where a lab's site via HN is still its bare
+ *   domain, until the owner decides it should count as the lab.
  */
 export const LAB_PUBLISHERS: Readonly<Record<string, string>> = {
   'openai.com': 'OpenAI',
@@ -204,17 +204,29 @@ export function knownLab(url: string): string | undefined {
 /** Sources whose items are Hacker News stories: their URL is usually someone else's article. */
 const HN_SOURCES = new Set(['hackernews_top']);
 
+export interface Outlet {
+  name: string;
+  publisher: string;
+  viaHN: boolean;
+}
+
 /**
- * Who an item's reader should credit. A Hacker News link to an external
- * article names the lab whose site it is, "OpenAI (via HN)", or the publisher,
- * "Reuters (via HN)", or the bare domain when neither is known. HN text posts
- * (news.ycombinator.com) stay "Hacker News", and Show HN items, which link to
- * the project itself, stay "Show HN". Every other source is its display name.
+ * An item's outlet as the ranking sees it: the per-outlet cap, the
+ * strong-source test and how widely a story was carried (stories.ts). A
+ * Hacker News link to an external article is its publisher, "Reuters (via
+ * HN)", or its bare domain when the press map doesn't know it, a lab's own
+ * site included. HN text posts (news.ycombinator.com) stay "Hacker News", and
+ * Show HN items, which link to the project itself, stay "Show HN". Every other
+ * source is its display name.
+ *
+ * Labs are named only for readers (itemOutlet), so naming them changed how
+ * outlets read, not the ranking (DEC-021). If the owner decides a lab's site
+ * via HN should count as the lab, this is the place.
  */
-export function itemOutlet(source: string, url: string): { name: string; publisher: string; viaHN: boolean } {
+export function rankingOutlet(source: string, url: string): Outlet {
   const host = urlHost(url);
   if (HN_SOURCES.has(source) && host && host !== 'news.ycombinator.com') {
-    const publisher = knownLab(url) ?? knownPublisher(url) ?? host;
+    const publisher = knownPublisher(url) ?? host;
     return { name: `${publisher} (via HN)`, publisher, viaHN: true };
   }
   const name = sourceDisplayName(source);
@@ -222,12 +234,12 @@ export function itemOutlet(source: string, url: string): { name: string; publish
 }
 
 /**
- * The outlet an item counts as for the per-outlet cap: itemOutlet's
- * publisher ("Reuters (via HN)" counts as Reuters), except that a lab's own
- * site via HN counts as its bare domain, as it did before labs were named
- * (DEC-021). Naming the lab changes how outlets read, not the ranking.
+ * Who an item's reader should credit: rankingOutlet, except that a Hacker
+ * News link to a lab's own site names the lab, "OpenAI (via HN)", so it is
+ * listed once with the lab's own copy.
  */
-export function capOutlet(source: string, url: string): string {
-  const outlet = itemOutlet(source, url);
-  return outlet.viaHN && knownLab(url) !== undefined ? urlHost(url) : outlet.publisher;
+export function itemOutlet(source: string, url: string): Outlet {
+  const outlet = rankingOutlet(source, url);
+  const lab = outlet.viaHN ? knownLab(url) : undefined;
+  return lab ? { name: `${lab} (via HN)`, publisher: lab, viaHN: true } : outlet;
 }
