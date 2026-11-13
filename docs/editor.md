@@ -136,8 +136,8 @@ npm run preview:editor -- --date 2026-10-13 --dry-run         # judge in memory,
 npm run preview:editor -- --date 2026-10-13 --dry-run --all   # plus every judgment, by story
 ```
 
-`--dry-run` uses the local `ANTHROPIC_API_KEY` and reads with
-`SUPABASE_ANON_KEY`. It writes nothing. A day costs about two cents.
+`--dry-run` uses the local `ANTHROPIC_API_KEY` (see [Local machines](#local-machines))
+and reads with `SUPABASE_ANON_KEY`. It writes nothing. A day costs about two cents.
 
 To see the effect on the digest itself, `npm run digest -- --preview --date …`
 shows the digest built from stored judgments ([`docs/digest.md`](digest.md)).
@@ -243,7 +243,8 @@ items in 37 calls, for about $0.11.
 
 ## Authentication
 
-The editor picks the first that applies (`src/editor/client.ts`):
+The editor picks the first that applies (`src/editor/client.ts`). The
+digest's repeat check and its fallback summary use the same client.
 
 1. **Workload identity federation on GitHub Actions.** When the repository
    variables `ANTHROPIC_FEDERATION_RULE_ID` and `ANTHROPIC_ORGANIZATION_ID` are
@@ -253,40 +254,96 @@ The editor picks the first that applies (`src/editor/client.ts`):
    long backfill never presents an expired one. No Anthropic secret is stored.
 2. **Federation from a token file** (`ANTHROPIC_IDENTITY_TOKEN_FILE`), handled
    by the SDK, for other CI systems.
-3. **`ANTHROPIC_API_KEY`.** Locally from `.env`. On GitHub it is the fallback
-   while the federation variables are unset.
+3. **`ANTHROPIC_API_KEY`.** Locally from `.env`, and on GitHub for a fork that
+   hasn't set up federation. This repository has no such secret any more.
 
 The log line `auth: …` says which one ran. The mode is logged; secrets never are.
 
-### Setting up federation
+**With the federation variables set, a failed exchange is an error.** It does
+not fall back to the key. A broken rule stops the editor, the repeat check (the
+digest uses the key rule) and the fallback summary until it's fixed. The
+editor jobs are allowed to fail, so check their logs, not only the run's
+colour ([`TROUBLESHOOTING.md`](TROUBLESHOOTING.md), "Token exchange failed").
+
+### Status: live since Nov 13, 2026
+
+Every GitHub run authenticates by federation. The first federated run judged
+33 of 33 items. The owner then deleted the `ANTHROPIC_API_KEY` repository
+secret, so GitHub holds no Anthropic key. The key fallback stays in the code
+for forks and local runs.
+
+### The federation rule
+
+In Claude Console → Settings → Workload identity:
+
+| Setting | Value |
+|---|---|
+| Rule | `ai-newsroom-github-main` (`fdrl_01GjkdTFb4hZy8f84afJqnRn`) |
+| Issuer | GitHub Actions, `https://token.actions.githubusercontent.com` |
+| GitHub organization | `JoonJ14` |
+| Repository | `ai-newsroom` |
+| Branch/ref | `refs/heads/main`: **the full ref**. `main` and `refs/head/main` both fail |
+| Event | Any event |
+| Organization numeric ID | `66638894` |
+| Workspace | Default workspace only |
+| Service account | `ai-newsroom-github-actions` |
+| OAuth scope | `workspace:developer` |
+| Token lifetime | 600 seconds |
+
+GitHub's token for a run on `main` has the subject
+`repo:JoonJ14/ai-newsroom:ref:refs/heads/main`. The rule matches it as a
+prefix, so pull requests (`…:pull_request`), forks and other branches don't
+match, except a branch whose name starts with `main` (`main-test`). Only the
+owner can push branches.
+
+The IDs are repository **variables** (they identify; they don't authenticate):
+`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`,
+`ANTHROPIC_SERVICE_ACCOUNT_ID` and `ANTHROPIC_WORKSPACE_ID`.
+
+**Rename warning.** If the GitHub username or the repository is ever renamed,
+edit the rule's organization and repository fields too. The numeric
+organization ID survives a rename; the name fields don't, and every exchange
+would fail.
+
+**Optional follow-up for the owner.** If the Console offers an OAuth scope
+narrower than `workspace:developer` that can still call the Messages API,
+switch the rule to it.
+
+### If an exchange fails
+
+The editor's log says `auth: workload identity federation (GitHub OIDC token)`,
+then each batch fails with HTTP 401 "Token exchange failed". Open Workload
+identity → **Authentication events**, expand the failed event, and compare
+`oidc_token.claims.sub` with the rule's Match section. A `match_subject_prefix`
+reason means the two differ, as when the Branch/ref field said
+`refs/head/main`.
+
+### Setting it up again (a fork, or a new rule)
 
 1. Claude Console → **Settings → Workload identity** → **Connect workload** →
    **GitHub Actions**.
-2. Issuer: `https://token.actions.githubusercontent.com`, JWKS by discovery.
-3. Service account: a new one, e.g. `ai-newsroom-editor`, in the workspace the
-   editor should bill to, with the developer scope the wizard offers.
-4. Federation rule:
-   - subject prefix `repo:JoonJ14/ai-newsroom:ref:refs/heads/main`;
-   - audience `https://api.anthropic.com`;
-   - claims `repository_owner = JoonJ14` and `ref = refs/heads/main`.
-
-   Runs from pull requests (`…:pull_request`), other branches and forks don't
-   match.
+2. Issuer `https://token.actions.githubusercontent.com`, JWKS by discovery.
+3. A service account in the workspace the editor should bill to, with the
+   developer scope the wizard offers.
+4. The rule: your GitHub user or organization, the repository, Branch/ref
+   `refs/heads/main` (the full ref), any event.
 5. Copy the IDs into **GitHub → Settings → Secrets and variables → Actions →
-   Variables** (not Secrets): `ANTHROPIC_FEDERATION_RULE_ID` (`fdrl_…`),
-   `ANTHROPIC_ORGANIZATION_ID` (a UUID, from Settings → Organization),
-   `ANTHROPIC_SERVICE_ACCOUNT_ID` (`svac_…`), and `ANTHROPIC_WORKSPACE_ID`
-   (`wrkspc_…`) if the rule covers more than one workspace.
-6. Run **AI Editor Backfill** (or wait for a collect run) and check the log for
-   `auth: workload identity federation (GitHub OIDC token)`. A rejected exchange
-   is a 401 "Authentication failed"; the reason is on the Console's Workload
-   identity → History tab.
-7. Once it has worked, delete the `ANTHROPIC_API_KEY` repository secret. Only
-   the editor jobs read it (in `collect.yml`, `digest.yml` and the backfill).
+   Variables** (not Secrets). `ANTHROPIC_WORKSPACE_ID` is needed only if the
+   rule covers more than one workspace.
+6. Run **AI Editor Backfill**, or wait for a collect run, and check the log for
+   `auth: workload identity federation (GitHub OIDC token)` and judged items.
+7. Then delete any `ANTHROPIC_API_KEY` repository secret.
 
-**Status (Oct 22, 2026): not done yet. This is an owner follow-up.** No
-`ANTHROPIC_FEDERATION_*` variables exist, so every run uses the
-`ANTHROPIC_API_KEY` secret. To finish:
-1. Complete the Console wizard (steps 1–5).
-2. Confirm that an editor log says `auth: workload identity federation (GitHub OIDC token)`.
-3. Then delete the secret.
+### Local machines
+
+Local runs (`npm run preview:editor -- --dry-run`, and the repeat check in
+`npm run digest -- --preview`) use `ANTHROPIC_API_KEY` from `.env`. The old
+per-machine keys (`ai-newsroom-local`, `ai-newsroom-mac-local`) expired. Put a
+fresh key in `.env` when you want a model-backed preview.
+- **With no key:** the digest preview uses the key rule, and the editor's
+  `--dry-run` refuses to run.
+- **With an expired key still in `.env`:** every call fails with 401. The
+  digest preview then uses the key rule anyway, and the dry run judges
+  nothing.
+One key per machine; never `source .env` in the shell that starts Claude Code
+(CLAUDE.md).

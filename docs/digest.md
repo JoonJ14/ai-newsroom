@@ -27,9 +27,9 @@ Supabase Cron ─▶ digest.yml ─▶ editor job ──▶ digest job ─▶ np
 ```
 
 - **The editor runs first.** `digest.yml` runs `npm run editor` as its own job
-  before the digest, with the same auth as `collect.yml` (federation variables,
-  falling back to the `ANTHROPIC_API_KEY` secret; `id-token: write` on that job
-  only). It covers a late or failed 8:30 collect-and-editor run. The step and
+  before the digest, with the same auth as `collect.yml` (workload identity
+  federation, live since Nov 13, 2026; [`docs/editor.md`](editor.md#authentication)).
+  It covers a late or failed 8:30 collect-and-editor run. The step and
   the job are allowed to fail, and the digest job runs whatever happened
   (`if: !cancelled()`).
 - **No `editor` concurrency group on that job.** A run waiting in the group
@@ -211,10 +211,22 @@ Guardian (via HN)".
   Washington Post, CNBC, Business Insider, The Information, Axios, Politico,
   404 Media, The Register, The Verge, Ars Technica, WIRED, TechCrunch, MIT
   Technology Review, Scientific American and a few more.
+- A link to a lab's own site names the lab, from `LAB_PUBLISHERS` in the same
+  file: "OpenAI (via HN)", "Google DeepMind (via HN)". Where the lab has a
+  direct source, the name is that source's, so `blog.google` is "Google AI"
+  and `about.fb.com` is "Meta AI". Labs without a direct source include
+  Mistral, Cohere, Microsoft AI, Apple, Amazon and Tencent (`DEC-021`).
 - An unknown domain shows bare: "quantamagazine.org (via HN)".
 - HN text posts stay "Hacker News", and Show HN projects stay "Show HN".
-- A publisher that also carried the story directly (The Verge's feed, and The
-  Verge via HN) is listed once.
+- A publisher or lab that also carried the story directly (The Verge's feed
+  and The Verge via HN; OpenAI's news and openai.com via HN) is listed once.
+- A lab's site via HN only changes how the outlet is named. The ranking
+  (`rankingOutlet`) counts it as before:
+  - not a strong source, for the weak-source rule;
+  - as its own domain, for the per-outlet cap;
+  - as a second outlet, for the "most widely carried" tiebreak.
+
+  Whether it should count as the lab is an open owner decision (`DEC-021`).
 
 ## Why-lines that describe coverage
 
@@ -250,10 +262,30 @@ columns can't be read, the digest:
 - logs a warning (a GitHub annotation on Actions);
 - prints the fallback footer.
 
-The links are the same safe masked links as in the editor digest. The optional
-AI summary (Haiku 4.5, only if `ANTHROPIC_API_KEY` is set for the digest job)
-is used only here. Since the repeat check, `digest.yml` passes that key to the
-digest job, so a fallback digest now gets the summary line again.
+The links are the same safe masked links as in the editor digest.
+
+The fallback alone has an optional AI summary: two or three sentences above
+the sections, from the window's 30 highest-scored titles, the pool the old
+ranking slots from (`src/digest/summary.ts`).
+- **The editor's client and model.** `createAnthropicClient` (federation on
+  Actions, then `ANTHROPIC_API_KEY`, then none) and `EDITOR_MODEL`
+  (`claude-haiku-5-5`). The digest job already has `id-token: write` and the
+  federation variables, for the repeat check.
+- **Small:** effort `low` and a 1,024-token cap. Adaptive thinking counts
+  against the cap, so it isn't 200 as before. Then a 30-second timeout and one
+  retry.
+- **Titles are data.** As in the editor and the repeat check, the instruction
+  is the system prompt and says so, and each title is a JSON string inside
+  `<items>` with `<` escaped, so a crafted title can't steer the summary.
+- **At most 800 characters.** The intro goes into the first Discord message
+  whole, and escaping can double it, so a longer answer is left out rather
+  than break the send.
+- **Never blocks the digest.** An error, a cut-off answer, a refusal or an
+  empty one leaves the summary out, with a warning (an annotation on Actions).
+  Without credentials there is no summary.
+
+Until PR #13 it called Haiku 4.5 over raw `fetch` with `ANTHROPIC_API_KEY`
+only, so once that secret was deleted it was left out without a word.
 
 The editor digest can't fail on the editor's account: if the editor job
 failed, the window is mostly unjudged and the fallback applies.
@@ -312,7 +344,7 @@ npm run digest -- --preview --date 2026-10-16                  # plain layout (o
 npm run digest -- --preview --date 2026-10-16 --layout embeds  # the embeds payload, as JSON
 npm run digest -- --preview --date 2026-10-16 --text           # plus the Slack/Telegram text
 npm run digest -- --preview --date 2026-10-16 --history        # plus the 7-day history it checked against
-npm run digest -- --preview --date 2026-10-16 --no-repeat-check  # the key rule, no API calls
+npm run digest -- --preview --date 2026-10-16 --no-repeat-check  # the key rule, no repeat-check calls (see below)
 ```
 
 The preview builds the digest for the 9:00 AM ET window ending on that date,
@@ -325,7 +357,14 @@ Two differences from the real run, both because the anon key can't read
 - It replays the 7 mornings before the date, oldest first, to rebuild the
   story history, running the repeat check on each in memory with the local
   `ANTHROPIC_API_KEY` (about $0.015 for the eight calls). With
-  `--no-repeat-check`, or without a key, every morning uses the key rule.
+  `--no-repeat-check`, or without a key, every morning uses the key rule. The
+  old per-machine keys expired; put a fresh one in `.env` for model-backed
+  previews ([`docs/editor.md`](editor.md#local-machines)).
+
+  A replayed morning that falls back to the old ranking (before Oct 10, 2026,
+  when nothing was judged yet) also asks for the fallback summary with that
+  key, even with `--no-repeat-check`. That's a fraction of a cent, and it's
+  never printed.
 
   The replayed history is what the new digest would have shown, not what was
   actually sent. The model's answers vary a little between runs.
@@ -341,7 +380,8 @@ key.
 
 | File | What it does |
 |---|---|
-| `src/digest/generate.ts` | `npm run digest`: CLI, adapters, the fallback's AI summary |
+| `src/digest/generate.ts` | `npm run digest`: CLI, adapters, credentials for the repeat check and the summary |
+| `src/digest/summary.ts` | The fallback's optional AI summary, with the editor's client and model |
 | `src/digest/run.ts` | One run: window, build, deliver, record. Preview and dry run never deliver or record |
 | `src/digest/build.ts` | Window items to the digest document: editor sections, fallback, footer, "Update:" label |
 | `src/digest/repeats.ts` | Story history, the repeat check, the key rule, merging and cutting updates |
@@ -350,5 +390,5 @@ key.
 | `src/digest/store.ts` | Supabase reads and the `digest_state` write |
 | `src/digest/config.ts` | Adapter credentials; layout and thresholds from the environment |
 | `supabase/functions/_shared/newsroom/stories.ts` | Stories, representative item, ranking, sections; shared with the MCP server and `preview:editor` (Node imports it via `src/editor/select.ts`) |
-| `supabase/functions/_shared/newsroom/source-names.ts` | Display names for every source, publishers by domain, source classes; shared with the MCP server |
+| `supabase/functions/_shared/newsroom/source-names.ts` | Display names for every source, publishers and labs by domain, source classes; shared with the MCP server |
 | `src/digest/digest.test.ts` | `npm run test:digest`, in CI |
