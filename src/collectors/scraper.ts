@@ -220,7 +220,10 @@ export function scrapeAnthropicListing(html: string, source: SourceConfig, pageU
 const HEADINGS = 'h1, h2, h3, h4, h5, h6';
 /** Titles that aren't headings: the old dated list's `…__title` spans, and the like. */
 const TITLE_CLASSES = '[class*="__title"], [class*="Title"], [class*="-title"]';
-/** How far above a date its card can start. The deepest seen is 3. */
+/**
+ * How far above a date its card can start. On the Nov 13 pages every card
+ * starts one level above the date's line; in the old layout, two.
+ */
 const MAX_CARD_DEPTH = 8;
 
 /** The card a `<time>` belongs to, and its title element; none if it isn't a single card's date. */
