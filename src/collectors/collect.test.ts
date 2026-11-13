@@ -454,9 +454,9 @@ section('a listing page that loads but gives no posts — a loud warning, never 
   ], [1, true, true]);
   check('escapeAnnotation', escapeAnnotation('a%b\r\nc'), 'a%25b%0D%0Ac');
   check('on Actions: one ::warning annotation per page, naming it; the run goes on with no items', [
-    threw, items?.length, annotations.filter((l) => l.includes('::Anthropic News: ')).length,
-    annotations.some((l) => l.includes('Anthropic News: https://www.anthropic.com/news loaded')),
-    annotations.some((l) => l.includes('Anthropic News: https://www.anthropic.com/research loaded')),
+    threw, items?.length, annotations.filter((l) => l.includes(`::${SOURCE.name}: `)).length,
+    annotations.some((l) => l.includes(`::${SOURCE.name}: https://www.anthropic.com/news loaded`)),
+    annotations.some((l) => l.includes(`::${SOURCE.name}: https://www.anthropic.com/research loaded`)),
   ], [false, 0, 2, true, true]);
 }
 
