@@ -377,7 +377,19 @@ section('scrapeAnthropicListing — the layout since about Oct 19, 2026 (fixture
   const enzyme = research.find((i) => i.url.endsWith('/claude-discovers-novel-enzyme-system'));
   check('the site\'s unfilled "[TeamName]" placeholder is not kept as a category',
     [enzyme !== undefined, researchHtml.includes('[TeamName]'), enzyme?.metadata?.category ?? 'none'], [true, true, 'none']);
+  check('the /news list keeps its category beside the date, not in the date\'s line', [
+    news.find((i) => i.url.endsWith('/news/roadshow-launch'))?.metadata?.category,
+    news.find((i) => i.url.endsWith('/news/expanding-partnership-gsa'))?.metadata?.category,
+  ], ['Announcements', 'Partnerships']);
+  check('every /news card has its category', news.filter((i) => !i.metadata?.category).map((i) => i.url), []);
   check('no warning for a page that gave posts', typeof emptyListingWarning('Anthropic News', 'u', newsHtml, news.length), 'undefined');
+  const schemes = scrapeAnthropicListing(`<main>
+    <article><header><time>Nov 9, 2026</time></header><a href="javascript://anthropic.com/%0aalert(1)"><h3>Injected</h3></a></article>
+    <article><header><time>Nov 9, 2026</time></header><a href="data:text/html,anthropic.com"><h3>Data</h3></a></article>
+    <article><header><time>Nov 9, 2026</time></header><a href="http://www.anthropic.com/news/plain-http"><h3>Plain http</h3></a></article>
+  </main>`, SOURCE, 'https://www.anthropic.com/news');
+  check('only web pages on anthropic.com: javascript: and data: links are skipped, whatever their host',
+    schemes.map((i) => i.url), ['http://www.anthropic.com/news/plain-http']);
 }
 
 section('a listing page that loads but gives no posts — a loud warning, never a failure');

@@ -180,7 +180,8 @@ export function scrapeAnthropicListing(html: string, source: SourceConfig, pageU
     } catch {
       return;
     }
-    if (!/(^|\.)anthropic\.com$/.test(url.hostname)) return;
+    // A web page on anthropic.com: not javascript:, data: or the like, whatever its host
+    if (!/^https?:$/.test(url.protocol) || !/(^|\.)anthropic\.com$/.test(url.hostname)) return;
 
     const title = collapseText($title.text());
     if (!title) return;
@@ -188,9 +189,11 @@ export function scrapeAnthropicListing(html: string, source: SourceConfig, pageU
     const summary =
       collapseText($card.find('p').filter((_j, el) => outsideMeta(el) && collapseText($(el).text()) !== '').first().text()) ||
       undefined;
-    const label = meta
-      ? collapseText($(meta).find('a, span').filter((_j, el) => !$(el).is('time') && collapseText($(el).text()) !== '').first().text())
-      : '';
+    // The category: a label in the date's line, or the card's own category element
+    // (the /news list keeps it beside the date, in `…_category`)
+    const labelIn = ($scope: cheerio.Cheerio<AnyNode>, selector: string) =>
+      collapseText($scope.find(selector).filter((_j, el) => !$(el).is('time') && collapseText($(el).text()) !== '').first().text());
+    const label = (meta ? labelIn($(meta), 'a, span') : '') || labelIn($card, '[class*="category"], [class*="subject"]');
     // Skips the site's own unfilled template placeholders, such as "[TeamName]"
     const category = label && !/^\[.*\]$/.test(label) ? label : undefined;
 
