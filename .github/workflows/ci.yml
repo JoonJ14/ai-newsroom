@@ -79,6 +79,12 @@ jobs:
       - name: Digest regression suite
         run: npm run test:digest
 
+      # deploy-mcp.yml's check on the SUPABASE_PROJECT_REF variable: trims
+      # surrounding whitespace, fails on anything that isn't a project ref.
+      # Plain bash, no network.
+      - name: Deploy script tests
+        run: scripts/project-ref.test.sh
+
       # A raw NUL makes tooling treat a source file as binary — ripgrep stops
       # reporting line matches and diffs degrade. One reached main on
       # 2026-08-05, so it is now checked rather than noticed by accident.
